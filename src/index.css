@@ -68,3 +68,7 @@ body {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
+
+.pb-safe {
+  padding-bottom: max(2rem, env(safe-area-inset-bottom, 0px));
+}

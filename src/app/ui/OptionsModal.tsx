@@ -58,7 +58,7 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
       />
 
       {/* Bottom Sheet */}
-      <div className="relative w-full max-w-lg bg-gray-800 rounded-t-2xl animate-slide-up max-h-[80vh] overflow-y-auto">
+      <div className="relative w-full max-w-lg bg-gray-800 rounded-t-2xl animate-slide-up max-h-[70vh] overflow-y-auto pb-safe">
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-2">
           <div className="w-10 h-1 bg-gray-600 rounded-full" />
@@ -79,7 +79,7 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
         </div>
 
         {/* Sections */}
-        <div className="px-6 pb-8 space-y-6">
+        <div className="px-6 pb-12 space-y-6">
           {/* Profile */}
           <section>
             <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
