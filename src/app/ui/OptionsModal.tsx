@@ -4,6 +4,7 @@ import { Storage } from '../../core/Storage';
 import { resetFirebaseIdentity } from '../../core/firebase';
 import { generateRandomName } from '../../core/nameGenerator';
 import { SoundEngine } from '../../core/SoundEngine';
+import { LeaderboardService } from '../../core/LeaderboardService';
 
 interface OptionsModalProps {
   isOpen: boolean;
@@ -29,9 +30,11 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
 
   const handleNameBlur = () => {
     const trimmed = nameInput.trim();
-    if (trimmed.length >= 3) {
+    if (trimmed.length >= 3 && trimmed !== settings.playerName) {
       updateSettings({ playerName: trimmed });
-    } else {
+      // Update name in all leaderboards
+      LeaderboardService.updatePlayerName(trimmed);
+    } else if (trimmed.length < 3) {
       setNameInput(settings.playerName);
     }
   };
@@ -40,6 +43,8 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
     const newName = generateRandomName();
     setNameInput(newName);
     updateSettings({ playerName: newName });
+    // Update name in all leaderboards
+    LeaderboardService.updatePlayerName(newName);
     if (settings.sound) SoundEngine.uiClick();
   };
 

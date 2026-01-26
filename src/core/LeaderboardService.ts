@@ -2,6 +2,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  updateDoc,
   serverTimestamp,
   collection,
   query,
@@ -10,6 +11,7 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import { getFirestoreDb, ensureAnonymousAuth, getFirebaseAuth } from './firebase';
+import { GAMES } from './GameRegistry';
 
 export interface LeaderboardEntry {
   uid: string;
@@ -73,6 +75,28 @@ class LeaderboardServiceImpl {
     const entries = await this.fetchTop(gameId, 1);
     if (entries.length === 0) return null;
     return { playerName: entries[0].playerName, score: entries[0].score };
+  }
+
+  async updatePlayerName(newName: string): Promise<void> {
+    const firestore = getFirestoreDb();
+    const user = await ensureAnonymousAuth();
+    if (!firestore || !user) return;
+
+    // Update player name in all game leaderboards
+    const updates = GAMES.map(async (game) => {
+      const ref = doc(firestore, 'leaderboards', game.id, 'bestByUser', user.uid);
+      try {
+        const existing = await getDoc(ref);
+        if (existing.exists()) {
+          await updateDoc(ref, { playerName: newName });
+        }
+      } catch (err) {
+        // Silently ignore if document doesn't exist
+        console.warn(`Failed to update name for ${game.id}:`, err);
+      }
+    });
+
+    await Promise.all(updates);
   }
 }
 
