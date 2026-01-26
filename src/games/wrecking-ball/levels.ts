@@ -175,8 +175,8 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
 
 // Generate a queue of balls with occasional power-ups
 export function generateBallQueue(levelNum: number): QueuedBall[] {
-  // Ball count: start with 5, gain 1 every 2 levels, max 10
-  const count = Math.min(5 + Math.floor((levelNum - 1) / 2), 10);
+  // Ball count: start with 5, gain 1 every 3 levels, max 7
+  const count = Math.min(5 + Math.floor((levelNum - 1) / 3), 7);
 
   // Triple shot chance: 15% base from level 1, increases slowly
   const tripleShotChance = Math.min(0.15 + (levelNum - 1) * 0.05, 0.30);
