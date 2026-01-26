@@ -114,6 +114,7 @@ export class ColorFloodGame implements GameInstance {
     const oldColor = this.currentColor;
     if (newColor === oldColor) return;
 
+    // Get current connected region
     const visited = new Set<string>();
     const toFill: [number, number][] = [[0, 0]];
     const connected: [number, number][] = [];
@@ -130,11 +131,55 @@ export class ColorFloodGame implements GameInstance {
       toFill.push([r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]);
     }
 
+    const oldSize = connected.length;
+
+    // Change to new color
     for (const [r, c] of connected) {
       this.grid[r][c] = newColor;
     }
 
     this.currentColor = newColor;
+
+    // Now find new connected region size to see how many cells were captured
+    const newConnected = this.getConnectedFromOrigin();
+    const newSize = newConnected.length;
+    const captured = newSize - oldSize;
+
+    // Non-linear scoring: 10n + 2.5n(n-1) points
+    // 1 block = 10, 2 blocks = 25, 3 blocks = 45, etc.
+    if (captured > 0) {
+      const points = Math.floor(10 * captured + 2.5 * captured * (captured - 1));
+      this.score += points;
+      this.api.setScore(this.score);
+
+      // Show feedback at center of newly captured cells
+      const newCells = newConnected.filter(([r, c]) => !visited.has(`${r},${c}`));
+      if (newCells.length > 0) {
+        let sumX = 0, sumY = 0;
+        for (const [r, c] of newCells) {
+          sumX += this.gridOffsetX + c * this.cellSize + this.cellSize / 2;
+          sumY += this.gridOffsetY + r * this.cellSize + this.cellSize / 2;
+          // Particles for captured cells
+          if (captured >= 3) {
+            const x = this.gridOffsetX + c * this.cellSize + this.cellSize / 2;
+            const y = this.gridOffsetY + r * this.cellSize + this.cellSize / 2;
+            this.particles.push(...generateParticlesAt(x, y, COLORS[newColor], 3));
+          }
+        }
+        const centerX = sumX / newCells.length;
+        const centerY = sumY / newCells.length;
+
+        // Points text
+        this.floatingTexts.push(createFloatingText(centerX, centerY, `+${points}`, '#fbbf24', captured >= 5 ? 20 : 16));
+
+        // Word feedback based on captured count
+        const feedback = this.getCaptureWord(captured);
+        if (feedback) {
+          this.floatingTexts.push(createFloatingText(centerX, centerY - 25, feedback.word, feedback.color, feedback.size));
+        }
+      }
+    }
+
     this.movesLeft--;
     this.api.haptics.tap();
     this.api.sounds.flood();
@@ -315,6 +360,15 @@ export class ColorFloodGame implements GameInstance {
     return true;
   }
 
+  private getCaptureWord(captured: number): { word: string; color: string; size: number } | null {
+    if (captured >= 20) return { word: 'INCREDIBLE!', color: '#f472b6', size: 24 };
+    if (captured >= 15) return { word: 'AMAZING!', color: '#a78bfa', size: 22 };
+    if (captured >= 10) return { word: 'Awesome!', color: '#34d399', size: 20 };
+    if (captured >= 6) return { word: 'Great!', color: '#60a5fa', size: 18 };
+    if (captured >= 3) return { word: 'Nice!', color: '#94a3b8', size: 16 };
+    return null; // No word for small captures
+  }
+
   private initGrid() {
     this.grid = Array.from({ length: GRID_SIZE }, () =>
       Array.from({ length: GRID_SIZE }, () => Math.floor(Math.random() * COLORS.length))
@@ -355,13 +409,44 @@ export class ColorFloodGame implements GameInstance {
       }
     }
 
-    // Highlight connected region
+    // Draw clear territory boundary - only outer edges
     const connected = this.getConnectedFromOrigin();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 2;
+    const connectedSet = new Set(connected.map(([r, c]) => `${r},${c}`));
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffffff';
+    ctx.shadowBlur = 4;
+
+    ctx.beginPath();
     for (const [r, c] of connected) {
-      ctx.strokeRect(gridOffsetX + c * cellSize + 2, gridOffsetY + r * cellSize + 2, cellSize - 4, cellSize - 4);
+      const x = gridOffsetX + c * cellSize;
+      const y = gridOffsetY + r * cellSize;
+
+      // Draw edge only if neighbor is NOT in connected region
+      // Top edge
+      if (!connectedSet.has(`${r - 1},${c}`)) {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + cellSize, y);
+      }
+      // Bottom edge
+      if (!connectedSet.has(`${r + 1},${c}`)) {
+        ctx.moveTo(x, y + cellSize);
+        ctx.lineTo(x + cellSize, y + cellSize);
+      }
+      // Left edge
+      if (!connectedSet.has(`${r},${c - 1}`)) {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y + cellSize);
+      }
+      // Right edge
+      if (!connectedSet.has(`${r},${c + 1}`)) {
+        ctx.moveTo(x + cellSize, y);
+        ctx.lineTo(x + cellSize, y + cellSize);
+      }
     }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
 
     // Color buttons
     const buttonY = this.gridOffsetY + cellSize * GRID_SIZE + 30;
@@ -389,7 +474,7 @@ export class ColorFloodGame implements GameInstance {
     ctx.fillStyle = '#94a3b8';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`Groups of ${TARGET_SIZE}: +100 | Fill board: +500 + move bonus`, rect.width / 2, buttonY + buttonHeight + 25);
+    ctx.fillText(`Capture cells for points | Groups of ${TARGET_SIZE}: +100 bonus`, rect.width / 2, buttonY + buttonHeight + 25);
 
     // Draw effects
     const reduceMotion = this.api.getSettings().reduceMotion;

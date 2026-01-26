@@ -474,6 +474,7 @@ export class WreckingBallGame implements GameInstance {
     const rect = this.container.getBoundingClientRect();
     this.ctx.clearRect(0, 0, rect.width, rect.height);
 
+    this.drawBoundaries();
     this.drawHUD();
     this.drawBricks();
     this.drawShields();
@@ -486,6 +487,52 @@ export class WreckingBallGame implements GameInstance {
     const reduceMotion = this.api.getSettings().reduceMotion;
     drawParticles(this.ctx, this.particles, reduceMotion);
     drawFloatingTexts(this.ctx, this.floatingTexts, reduceMotion);
+  }
+
+  private drawBoundaries() {
+    const { ctx } = this;
+    const { left, right, top } = this.bounds;
+
+    // Draw play area boundary walls
+    ctx.strokeStyle = 'rgba(100, 116, 139, 0.5)'; // slate-500 with transparency
+    ctx.lineWidth = 2;
+
+    // Left wall
+    ctx.beginPath();
+    ctx.moveTo(left, top);
+    ctx.lineTo(left, this.launchY + 20);
+    ctx.stroke();
+
+    // Right wall
+    ctx.beginPath();
+    ctx.moveTo(right, top);
+    ctx.lineTo(right, this.launchY + 20);
+    ctx.stroke();
+
+    // Top wall
+    ctx.beginPath();
+    ctx.moveTo(left, top);
+    ctx.lineTo(right, top);
+    ctx.stroke();
+
+    // Corner accents for visibility
+    const cornerSize = 8;
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.7)'; // slate-400, brighter
+    ctx.lineWidth = 3;
+
+    // Top-left corner
+    ctx.beginPath();
+    ctx.moveTo(left, top + cornerSize);
+    ctx.lineTo(left, top);
+    ctx.lineTo(left + cornerSize, top);
+    ctx.stroke();
+
+    // Top-right corner
+    ctx.beginPath();
+    ctx.moveTo(right - cornerSize, top);
+    ctx.lineTo(right, top);
+    ctx.lineTo(right, top + cornerSize);
+    ctx.stroke();
   }
 
   private drawHUD() {
