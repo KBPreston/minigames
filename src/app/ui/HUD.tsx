@@ -1,5 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Storage } from '../../core/Storage';
+import { SoundEngine } from '../../core/SoundEngine';
+import { useSettings } from '../../core/SettingsStore';
 
 interface HUDProps {
   gameId: string;
@@ -11,13 +13,29 @@ interface HUDProps {
 
 export function HUD({ gameId, gameName, score, onOptionsClick, onInfoClick }: HUDProps) {
   const navigate = useNavigate();
+  const { settings } = useSettings();
   const bestScore = Storage.getBestScore(gameId);
+
+  const handleHomeClick = () => {
+    if (settings.sound) SoundEngine.uiBack();
+    navigate('/');
+  };
+
+  const handleInfoClick = () => {
+    if (settings.sound) SoundEngine.uiOpen();
+    onInfoClick();
+  };
+
+  const handleOptionsClick = () => {
+    if (settings.sound) SoundEngine.uiOpen();
+    onOptionsClick();
+  };
 
   return (
     <div className="flex items-center justify-between px-4 py-3 bg-gray-900/80 backdrop-blur-sm">
       <div className="flex items-center gap-1">
         <button
-          onClick={() => navigate('/')}
+          onClick={handleHomeClick}
           className="p-2 -m-2 text-white/80 hover:text-white active:scale-95 transition-all"
           aria-label="Home"
         >
@@ -31,7 +49,7 @@ export function HUD({ gameId, gameName, score, onOptionsClick, onInfoClick }: HU
           </svg>
         </button>
         <button
-          onClick={onInfoClick}
+          onClick={handleInfoClick}
           className="p-2 text-white/80 hover:text-white active:scale-95 transition-all"
           aria-label="Game Info"
         >
@@ -59,7 +77,7 @@ export function HUD({ gameId, gameName, score, onOptionsClick, onInfoClick }: HU
       </div>
 
       <button
-        onClick={onOptionsClick}
+        onClick={handleOptionsClick}
         className="p-2 -m-2 text-white/80 hover:text-white active:scale-95 transition-all"
         aria-label="Options"
       >

@@ -1,3 +1,6 @@
+import { SoundEngine } from '../../core/SoundEngine';
+import { useSettings } from '../../core/SettingsStore';
+
 interface GameInfoModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -49,16 +52,23 @@ const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
 };
 
 export function GameInfoModal({ isOpen, onClose, gameId }: GameInfoModalProps) {
+  const { settings } = useSettings();
+
   if (!isOpen) return null;
 
   const info = GAME_RULES[gameId] || { title: 'Game Rules', rules: ['No rules available'] };
+
+  const handleClose = () => {
+    if (settings.sound) SoundEngine.uiClose();
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleClose}
       />
 
       {/* Modal */}
@@ -66,7 +76,7 @@ export function GameInfoModal({ isOpen, onClose, gameId }: GameInfoModalProps) {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold">{info.title}</h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 -m-2 text-gray-400 hover:text-white"
             aria-label="Close"
           >
@@ -89,7 +99,7 @@ export function GameInfoModal({ isOpen, onClose, gameId }: GameInfoModalProps) {
         </div>
 
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="w-full mt-6 py-3 bg-primary-600 hover:bg-primary-500 text-white font-semibold rounded-xl transition-colors"
         >
           Got it!

@@ -1,5 +1,7 @@
 export interface Settings {
   haptics: boolean;
+  sound: boolean;
+  soundVolume: number; // 0-100
   reduceMotion: boolean;
   playerName: string;
 }
@@ -12,6 +14,24 @@ export interface GameAPI {
   haptics: {
     tap(): void;
     success(): void;
+  };
+  sounds: {
+    place(): void;
+    select(): void;
+    invalid(): void;
+    clearSingle(): void;
+    clearMulti(count: number): void;
+    combo(multiplier: number): void;
+    burst(): void;
+    drop(): void;
+    merge(value: number): void;
+    flood(): void;
+    regionClear(): void;
+    roundComplete(): void;
+    gameStart(): void;
+    gameOver(): void;
+    newHighScore(): void;
+    warning(): void;
   };
 }
 

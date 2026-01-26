@@ -8,6 +8,8 @@ const SETTINGS_KEY = 'settings';
 function getDefaultSettings(): Settings {
   return {
     haptics: true,
+    sound: true,
+    soundVolume: 50,
     reduceMotion: false,
     playerName: generateRandomName(),
   };

@@ -137,6 +137,7 @@ export class SnapMergeGame implements GameInstance {
     if (targetRow === row) {
       // Can't move and can't merge, just tap feedback
       this.api.haptics.tap();
+      this.api.sounds.invalid();
       return;
     }
 
@@ -192,6 +193,7 @@ export class SnapMergeGame implements GameInstance {
       this.score += newVal;
       this.api.setScore(this.score);
       this.api.haptics.success();
+      this.api.sounds.merge(newVal);
 
       // Calculate merge position for effects
       const mergeX = this.gridOffsetX + col * this.cellWidth + this.cellWidth / 2;
@@ -214,6 +216,7 @@ export class SnapMergeGame implements GameInstance {
       // Just moved down
       this.grid[targetRow][col] = cell;
       this.api.haptics.tap();
+      this.api.sounds.drop();
     }
 
     this.animatingFall = null;
@@ -486,6 +489,7 @@ export class SnapMergeGame implements GameInstance {
     }
 
     this.api.setScore(0);
+    this.api.sounds.gameStart();
     this.render();
     this.startPulseLoop();
   }

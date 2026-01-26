@@ -154,8 +154,11 @@ export class BloomBurstGame implements GameInstance {
       const localX = screenX - rect.left;
       const pieceIndex = Math.floor(localX / spacing);
       if (pieceIndex >= 0 && pieceIndex < this.pieceQueue.length) {
-        this.selectedPieceIndex = pieceIndex;
-        this.api.haptics.tap();
+        if (pieceIndex !== this.selectedPieceIndex) {
+          this.selectedPieceIndex = pieceIndex;
+          this.api.haptics.tap();
+          this.api.sounds.select();
+        }
       }
       this.ghostPosition = null;
     } else {
@@ -301,8 +304,13 @@ export class BloomBurstGame implements GameInstance {
         this.floatingTexts.push(...newTexts);
 
         this.api.haptics.success();
+        this.api.sounds.burst();
+        if (result.bursts.length > 1) {
+          this.api.sounds.combo(this.comboMultiplier);
+        }
       } else {
         this.api.haptics.tap();
+        this.api.sounds.place();
       }
 
       // Replace used piece
@@ -412,6 +420,7 @@ export class BloomBurstGame implements GameInstance {
     this.defeatAnimation = null;
     this.isPaused = false;
     this.api.setScore(0);
+    this.api.sounds.gameStart();
     this.render();
   }
 

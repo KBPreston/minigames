@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getGameById } from './GameRegistry';
 import { useSettings } from './SettingsStore';
 import { Storage } from './Storage';
+import { SoundEngine } from './SoundEngine';
 import type { GameAPI, GameInstance, Settings } from './types';
 
 interface GameHostProps {
@@ -20,9 +21,10 @@ export function GameHost({ gameId, onScoreChange, onGameOver, isPaused }: GameHo
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Keep settings ref updated
+  // Keep settings ref updated and sync sound volume
   useEffect(() => {
     settingsRef.current = settings;
+    SoundEngine.setVolume(settings.soundVolume);
     settingsListenersRef.current.forEach((fn) => fn());
   }, [settings]);
 
@@ -81,6 +83,56 @@ export function GameHost({ gameId, onScoreChange, onGameOver, isPaused }: GameHo
           if (settingsRef.current.haptics && navigator.vibrate) {
             navigator.vibrate([10, 50, 10]);
           }
+        },
+      },
+      sounds: {
+        place: () => {
+          if (settingsRef.current.sound) SoundEngine.place();
+        },
+        select: () => {
+          if (settingsRef.current.sound) SoundEngine.select();
+        },
+        invalid: () => {
+          if (settingsRef.current.sound) SoundEngine.invalid();
+        },
+        clearSingle: () => {
+          if (settingsRef.current.sound) SoundEngine.clearSingle();
+        },
+        clearMulti: (count: number) => {
+          if (settingsRef.current.sound) SoundEngine.clearMulti(count);
+        },
+        combo: (multiplier: number) => {
+          if (settingsRef.current.sound) SoundEngine.combo(multiplier);
+        },
+        burst: () => {
+          if (settingsRef.current.sound) SoundEngine.burst();
+        },
+        drop: () => {
+          if (settingsRef.current.sound) SoundEngine.drop();
+        },
+        merge: (value: number) => {
+          if (settingsRef.current.sound) SoundEngine.merge(value);
+        },
+        flood: () => {
+          if (settingsRef.current.sound) SoundEngine.flood();
+        },
+        regionClear: () => {
+          if (settingsRef.current.sound) SoundEngine.regionClear();
+        },
+        roundComplete: () => {
+          if (settingsRef.current.sound) SoundEngine.roundComplete();
+        },
+        gameStart: () => {
+          if (settingsRef.current.sound) SoundEngine.gameStart();
+        },
+        gameOver: () => {
+          if (settingsRef.current.sound) SoundEngine.gameOver();
+        },
+        newHighScore: () => {
+          if (settingsRef.current.sound) SoundEngine.newHighScore();
+        },
+        warning: () => {
+          if (settingsRef.current.sound) SoundEngine.warning();
         },
       },
     };

@@ -137,6 +137,12 @@ export class ColorFloodGame implements GameInstance {
     this.currentColor = newColor;
     this.movesLeft--;
     this.api.haptics.tap();
+    this.api.sounds.flood();
+
+    // Warning sound when low on moves
+    if (this.movesLeft === 5) {
+      this.api.sounds.warning();
+    }
 
     this.checkAndClearGroups();
     this.render();
@@ -152,6 +158,7 @@ export class ColorFloodGame implements GameInstance {
       this.score += bonus;
       this.api.setScore(this.score);
       this.api.haptics.success();
+      this.api.sounds.roundComplete();
 
       // Add celebration effects for winning
       const rect = this.container.getBoundingClientRect();
@@ -280,6 +287,10 @@ export class ColorFloodGame implements GameInstance {
     if (groupsCleared > 0) {
       this.api.setScore(this.score);
       this.api.haptics.success();
+      this.api.sounds.regionClear();
+      if (groupsCleared > 1) {
+        this.api.sounds.combo(groupsCleared);
+      }
 
       // Add celebratory word if multiple groups cleared
       if (groupsCleared >= 1) {
@@ -419,6 +430,7 @@ export class ColorFloodGame implements GameInstance {
     this.defeatAnimation = null;
     this.isPaused = false;
     this.api.setScore(0);
+    this.api.sounds.gameStart();
     this.render();
   }
 

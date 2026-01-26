@@ -3,6 +3,11 @@ export interface Vec2 {
   y: number;
 }
 
+export enum BallType {
+  Normal = 'normal',
+  TripleShot = 'triple',
+}
+
 export interface Ball {
   x: number;
   y: number;
@@ -10,6 +15,8 @@ export interface Ball {
   vy: number;
   radius: number;
   active: boolean;
+  type: BallType;
+  isMiniBall?: boolean; // For triple shot sub-balls
 }
 
 export enum BrickType {
@@ -17,6 +24,7 @@ export enum BrickType {
   Strong = 'strong',
   Indestructible = 'indestructible',
   Shield = 'shield', // Protective walls that save balls, don't count for winning
+  Bomb = 'bomb', // Explodes and destroys nearby blocks
 }
 
 export interface Brick {

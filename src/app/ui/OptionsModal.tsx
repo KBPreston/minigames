@@ -3,6 +3,7 @@ import { useSettings } from '../../core/SettingsStore';
 import { Storage } from '../../core/Storage';
 import { resetFirebaseIdentity } from '../../core/firebase';
 import { generateRandomName } from '../../core/nameGenerator';
+import { SoundEngine } from '../../core/SoundEngine';
 
 interface OptionsModalProps {
   isOpen: boolean;
@@ -15,6 +16,11 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
   const [nameInput, setNameInput] = useState(settings.playerName);
 
   if (!isOpen) return null;
+
+  const handleClose = () => {
+    if (settings.sound) SoundEngine.uiClose();
+    onClose();
+  };
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.slice(0, 16);
@@ -34,6 +40,7 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
     const newName = generateRandomName();
     setNameInput(newName);
     updateSettings({ playerName: newName });
+    if (settings.sound) SoundEngine.uiClick();
   };
 
   const handleResetData = async () => {
@@ -61,7 +68,7 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleClose}
       />
 
       {/* Bottom Sheet */}
@@ -75,7 +82,7 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
         <div className="flex items-center justify-between px-6 pb-4">
           <h2 className="text-xl font-bold">Options</h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 -m-2 text-gray-400 hover:text-white"
             aria-label="Close"
           >
@@ -129,11 +136,68 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
             </h3>
             <div className="space-y-3">
               <label className="flex items-center justify-between cursor-pointer">
+                <span className="text-gray-200">Sound Effects</span>
+                <button
+                  role="switch"
+                  aria-checked={settings.sound}
+                  onClick={() => {
+                    const newValue = !settings.sound;
+                    updateSettings({ sound: newValue });
+                    // Play a sound to demonstrate if enabling
+                    if (newValue) {
+                      SoundEngine.setVolume(settings.soundVolume);
+                      SoundEngine.uiToggle(true);
+                    }
+                  }}
+                  className={`relative w-12 h-7 rounded-full transition-colors ${
+                    settings.sound ? 'bg-primary-500' : 'bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${
+                      settings.sound ? 'translate-x-5' : ''
+                    }`}
+                  />
+                </button>
+              </label>
+              {settings.sound && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-300 text-sm">Volume</span>
+                    <span className="text-gray-400 text-sm tabular-nums w-8 text-right">{settings.soundVolume}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={settings.soundVolume}
+                    onChange={(e) => {
+                      const newVolume = parseInt(e.target.value, 10);
+                      updateSettings({ soundVolume: newVolume });
+                      SoundEngine.setVolume(newVolume);
+                    }}
+                    onMouseUp={() => {
+                      // Play a preview sound when user releases the slider
+                      SoundEngine.uiClick();
+                    }}
+                    onTouchEnd={() => {
+                      SoundEngine.uiClick();
+                    }}
+                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                  />
+                </div>
+              )}
+              <label className="flex items-center justify-between cursor-pointer">
                 <span className="text-gray-200">Haptic Feedback</span>
                 <button
                   role="switch"
                   aria-checked={settings.haptics}
-                  onClick={() => updateSettings({ haptics: !settings.haptics })}
+                  onClick={() => {
+                    const newValue = !settings.haptics;
+                    updateSettings({ haptics: newValue });
+                    if (settings.sound) SoundEngine.uiToggle(newValue);
+                  }}
                   className={`relative w-12 h-7 rounded-full transition-colors ${
                     settings.haptics ? 'bg-primary-500' : 'bg-gray-600'
                   }`}
@@ -159,7 +223,11 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
                 <button
                   role="switch"
                   aria-checked={settings.reduceMotion}
-                  onClick={() => updateSettings({ reduceMotion: !settings.reduceMotion })}
+                  onClick={() => {
+                    const newValue = !settings.reduceMotion;
+                    updateSettings({ reduceMotion: newValue });
+                    if (settings.sound) SoundEngine.uiToggle(newValue);
+                  }}
                   className={`relative w-12 h-7 rounded-full transition-colors ${
                     settings.reduceMotion ? 'bg-primary-500' : 'bg-gray-600'
                   }`}

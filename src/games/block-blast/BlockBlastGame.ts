@@ -174,8 +174,11 @@ export class BlockBlastGame implements GameInstance {
       const localX = screenX - rect.left;
       const pieceIndex = Math.floor(localX / spacing);
       if (pieceIndex >= 0 && pieceIndex < this.pieceQueue.length) {
-        this.selectedPieceIndex = pieceIndex;
-        this.api.haptics.tap();
+        if (pieceIndex !== this.selectedPieceIndex) {
+          this.selectedPieceIndex = pieceIndex;
+          this.api.haptics.tap();
+          this.api.sounds.select();
+        }
       }
       this.ghostPosition = null;
     } else {
@@ -222,6 +225,14 @@ export class BlockBlastGame implements GameInstance {
       if (hasClears) {
         this.comboMultiplier += 0.5;
         this.api.haptics.success();
+
+        // Play appropriate clear sound
+        if (linesCleared >= 2) {
+          this.api.sounds.clearMulti(linesCleared);
+          this.api.sounds.combo(this.comboMultiplier);
+        } else {
+          this.api.sounds.clearSingle();
+        }
 
         // Generate particles for cleared cells
         const clearedCells: Set<string> = new Set();
@@ -276,6 +287,7 @@ export class BlockBlastGame implements GameInstance {
       } else {
         this.comboMultiplier = 1;
         this.api.haptics.tap();
+        this.api.sounds.place();
 
         const points = calculateScore(
           result.placedTiles.length,
@@ -479,6 +491,7 @@ export class BlockBlastGame implements GameInstance {
     this.defeatAnimation = null;
     this.isPaused = false;
     this.api.setScore(0);
+    this.api.sounds.gameStart();
     this.render();
   }
 

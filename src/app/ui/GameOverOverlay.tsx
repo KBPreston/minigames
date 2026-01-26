@@ -1,5 +1,8 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Storage } from '../../core/Storage';
+import { SoundEngine } from '../../core/SoundEngine';
+import { useSettings } from '../../core/SettingsStore';
 
 interface GameOverOverlayProps {
   gameId: string;
@@ -9,8 +12,20 @@ interface GameOverOverlayProps {
 
 export function GameOverOverlay({ gameId, finalScore, onPlayAgain }: GameOverOverlayProps) {
   const navigate = useNavigate();
+  const { settings } = useSettings();
   const bestScore = Storage.getBestScore(gameId);
   const isNewBest = finalScore >= bestScore && finalScore > 0;
+
+  // Play sounds on mount
+  useEffect(() => {
+    if (settings.sound) {
+      if (isNewBest) {
+        SoundEngine.newHighScore();
+      } else {
+        SoundEngine.gameOver();
+      }
+    }
+  }, []);
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -35,7 +50,10 @@ export function GameOverOverlay({ gameId, finalScore, onPlayAgain }: GameOverOve
 
         <div className="space-y-3 mt-6">
           <button
-            onClick={onPlayAgain}
+            onClick={() => {
+              if (settings.sound) SoundEngine.uiClick();
+              onPlayAgain();
+            }}
             className="w-full py-3 bg-primary-600 hover:bg-primary-500 text-white font-semibold rounded-xl active:scale-98 transition-all"
           >
             Play Again
@@ -43,13 +61,19 @@ export function GameOverOverlay({ gameId, finalScore, onPlayAgain }: GameOverOve
 
           <div className="flex gap-3">
             <button
-              onClick={() => navigate('/')}
+              onClick={() => {
+                if (settings.sound) SoundEngine.uiBack();
+                navigate('/');
+              }}
               className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-xl active:scale-98 transition-all"
             >
               Home
             </button>
             <button
-              onClick={() => navigate(`/leaderboard/${gameId}`)}
+              onClick={() => {
+                if (settings.sound) SoundEngine.uiClick();
+                navigate(`/leaderboard/${gameId}`);
+              }}
               className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-xl active:scale-98 transition-all flex items-center justify-center gap-2"
             >
               <span className="text-yellow-400">🏆</span>
