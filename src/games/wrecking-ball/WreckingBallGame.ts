@@ -242,10 +242,15 @@ export class WreckingBallGame implements GameInstance {
     // Create and launch ball(s) based on type
     if (queuedBall.type === BallType.TripleShot) {
       const tripleBalls = createTripleShotBalls(this.launchX, this.launchY, angle, BALL_SPEED);
+      // Initialize combo counter for each ball
+      for (const b of tripleBalls) {
+        b.combo = 0;
+      }
       this.balls.push(...tripleBalls);
       this.api.sounds.burst();
     } else {
       const ball = createBall(this.launchX, this.launchY, angle, BALL_SPEED, BALL_RADIUS, BallType.Normal);
+      ball.combo = 0;
       this.balls.push(ball);
     }
 
@@ -298,19 +303,72 @@ export class WreckingBallGame implements GameInstance {
 
           // Check if it's a bomb - trigger explosion
           if (brick.type === BrickType.Bomb) {
+            // Bomb counts toward combo
+            ball.combo = (ball.combo || 0) + 1;
             this.triggerBombExplosion(brick);
           } else {
-            const points = 10 * this.level;
+            // Increment combo for this ball
+            ball.combo = (ball.combo || 0) + 1;
+            const combo = ball.combo;
+
+            // Calculate multiplier: 1x for first brick, 1.5x for 2nd, 2x for 3rd, etc.
+            const multiplier = 1 + (combo - 1) * 0.5;
+            const basePoints = 10 * this.level;
+            const points = Math.floor(basePoints * multiplier);
             this.score += points;
             this.api.setScore(this.score);
 
             const cx = brick.x + brick.width / 2;
             const cy = brick.y + brick.height / 2;
-            this.particles.push(...generateParticlesAt(cx, cy, brick.color, 8));
-            this.floatingTexts.push(createFloatingText(cx, cy, `+${points}`, '#fbbf24', 16));
-            this.api.haptics.tap();
-            this.api.sounds.clearSingle();
+
+            // Escalating feedback based on combo
+            if (combo >= 5) {
+              // MEGA combo (5+) - huge feedback
+              this.particles.push(...generateParticlesAt(cx, cy, brick.color, 25));
+              this.particles.push(...generateParticlesAt(cx, cy, '#fbbf24', 15)); // Gold particles
+              this.floatingTexts.push(createFloatingText(cx, cy - 20, `${combo}x MEGA!`, '#f97316', 28));
+              this.floatingTexts.push(createFloatingText(cx, cy + 10, `+${points}`, '#fbbf24', 20));
+              this.api.haptics.success();
+              this.api.sounds.combo(combo);
+            } else if (combo >= 3) {
+              // Great combo (3-4) - big feedback
+              this.particles.push(...generateParticlesAt(cx, cy, brick.color, 16));
+              this.particles.push(...generateParticlesAt(cx, cy, '#fbbf24', 8));
+              this.floatingTexts.push(createFloatingText(cx, cy - 15, `${combo}x COMBO!`, '#eab308', 22));
+              this.floatingTexts.push(createFloatingText(cx, cy + 10, `+${points}`, '#fbbf24', 18));
+              this.api.haptics.success();
+              this.api.sounds.combo(combo);
+            } else if (combo >= 2) {
+              // Good combo (2) - medium feedback
+              this.particles.push(...generateParticlesAt(cx, cy, brick.color, 12));
+              this.floatingTexts.push(createFloatingText(cx, cy - 10, `${combo}x`, '#84cc16', 18));
+              this.floatingTexts.push(createFloatingText(cx, cy + 8, `+${points}`, '#fbbf24', 16));
+              this.api.haptics.tap();
+              this.api.sounds.clearMulti(combo);
+            } else {
+              // First brick - normal feedback
+              this.particles.push(...generateParticlesAt(cx, cy, brick.color, 8));
+              this.floatingTexts.push(createFloatingText(cx, cy, `+${points}`, '#fbbf24', 16));
+              this.api.haptics.tap();
+              this.api.sounds.clearSingle();
+            }
           }
+        }
+      }
+
+      // Ball exited the play area - show combo summary if it was good
+      if (result.exited && ball.combo && ball.combo >= 3) {
+        const rect = this.container.getBoundingClientRect();
+        const summaryY = rect.height - 120;
+        const combo = ball.combo;
+
+        if (combo >= 7) {
+          this.floatingTexts.push(createFloatingText(rect.width / 2, summaryY, `LEGENDARY ${combo} HIT STREAK!`, '#f97316', 26));
+          this.api.sounds.newHighScore();
+        } else if (combo >= 5) {
+          this.floatingTexts.push(createFloatingText(rect.width / 2, summaryY, `AMAZING ${combo} HIT STREAK!`, '#eab308', 22));
+        } else {
+          this.floatingTexts.push(createFloatingText(rect.width / 2, summaryY, `${combo} HIT STREAK!`, '#84cc16', 20));
         }
       }
     }
@@ -846,7 +904,7 @@ export class WreckingBallGame implements GameInstance {
 
   private createShields() {
     const rect = this.container.getBoundingClientRect();
-    const shieldWidth = 45;
+    const shieldWidth = 68; // 50% wider for better coverage
     const shieldHeight = 10;
     const shieldY = this.launchY + 30; // Below the launcher
     const centerX = rect.width / 2;

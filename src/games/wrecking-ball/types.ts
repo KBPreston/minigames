@@ -17,6 +17,7 @@ export interface Ball {
   active: boolean;
   type: BallType;
   isMiniBall?: boolean; // For triple shot sub-balls
+  combo?: number; // Track bricks destroyed by this ball for combo multiplier
 }
 
 export enum BrickType {
