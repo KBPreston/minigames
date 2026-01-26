@@ -68,6 +68,12 @@ class LeaderboardServiceImpl {
     const idx = entries.findIndex((e) => e.uid === user.uid);
     return { entries, rankInTop: idx >= 0 ? idx + 1 : null };
   }
+
+  async fetchTopScore(gameId: string): Promise<{ playerName: string; score: number } | null> {
+    const entries = await this.fetchTop(gameId, 1);
+    if (entries.length === 0) return null;
+    return { playerName: entries[0].playerName, score: entries[0].score };
+  }
 }
 
 export const LeaderboardService = new LeaderboardServiceImpl();

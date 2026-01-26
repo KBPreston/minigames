@@ -1,14 +1,17 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { Storage } from './Storage';
+import { generateRandomName } from './nameGenerator';
 import type { Settings } from './types';
 
 const SETTINGS_KEY = 'settings';
 
-const DEFAULT_SETTINGS: Settings = {
-  haptics: true,
-  reduceMotion: false,
-  playerName: 'Player',
-};
+function getDefaultSettings(): Settings {
+  return {
+    haptics: true,
+    reduceMotion: false,
+    playerName: generateRandomName(),
+  };
+}
 
 interface SettingsContextValue {
   settings: Settings;
@@ -19,9 +22,10 @@ interface SettingsContextValue {
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(() =>
-    Storage.get<Settings>(SETTINGS_KEY, DEFAULT_SETTINGS)
-  );
+  const [settings, setSettings] = useState<Settings>(() => {
+    const saved = Storage.get<Settings | null>(SETTINGS_KEY, null);
+    return saved ?? getDefaultSettings();
+  });
 
   useEffect(() => {
     Storage.set(SETTINGS_KEY, settings);
@@ -32,7 +36,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetSettings = useCallback(() => {
-    setSettings(DEFAULT_SETTINGS);
+    setSettings(getDefaultSettings());
   }, []);
 
   const value: SettingsContextValue = {

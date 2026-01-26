@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useSettings } from '../../core/SettingsStore';
 import { Storage } from '../../core/Storage';
 import { resetFirebaseIdentity } from '../../core/firebase';
+import { generateRandomName } from '../../core/nameGenerator';
 
 interface OptionsModalProps {
   isOpen: boolean;
@@ -27,6 +28,12 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
     } else {
       setNameInput(settings.playerName);
     }
+  };
+
+  const handleRandomizeName = () => {
+    const newName = generateRandomName();
+    setNameInput(newName);
+    updateSettings({ playerName: newName });
   };
 
   const handleResetData = async () => {
@@ -88,16 +95,29 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm text-gray-300 mb-1">Player Name</label>
-                <input
-                  type="text"
-                  value={nameInput}
-                  onChange={handleNameChange}
-                  onBlur={handleNameBlur}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-primary-500"
-                  placeholder="3-16 characters"
-                  minLength={3}
-                  maxLength={16}
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={nameInput}
+                    onChange={handleNameChange}
+                    onBlur={handleNameBlur}
+                    className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-primary-500"
+                    placeholder="3-16 characters"
+                    minLength={3}
+                    maxLength={16}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRandomizeName}
+                    className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+                    aria-label="Randomize name"
+                    title="Randomize name"
+                  >
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zm0 2h2v2H5V5zm10-2a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2h-2zm0 2h2v2h-2V5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zm0 2h2v2H5v-2zm10-2a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2h-2zm1 2a1 1 0 112 0 1 1 0 01-2 0zM5 19a2 2 0 00-2 2v.01a2 2 0 002 2h2a2 2 0 002-2V21a2 2 0 00-2-2H5zm1 2a1 1 0 112 0 1 1 0 01-2 0zm9-2a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2h-2zm0 2h2v2h-2v-2z" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           </section>

@@ -2,13 +2,19 @@ import { useNavigate } from 'react-router-dom';
 import { Storage } from '../../core/Storage';
 import type { GameMetadata } from '../../core/types';
 
+interface TopScore {
+  playerName: string;
+  score: number;
+}
+
 interface GameCardProps {
   game: GameMetadata;
   rank?: number | null;
+  topScore?: TopScore | null;
   isLoadingRank?: boolean;
 }
 
-export function GameCard({ game, rank, isLoadingRank }: GameCardProps) {
+export function GameCard({ game, rank, topScore, isLoadingRank }: GameCardProps) {
   const navigate = useNavigate();
   const bestScore = Storage.getBestScore(game.id);
 
@@ -42,21 +48,34 @@ export function GameCard({ game, rank, isLoadingRank }: GameCardProps) {
 
       {/* Score & Rank */}
       {!game.disabled && (
-        <div className="flex items-center justify-between mt-2">
-          <div className="text-sm text-gray-400">
-            {bestScore > 0 ? (
-              <span>Best: {bestScore.toLocaleString()}</span>
-            ) : (
-              <span>No score yet</span>
-            )}
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-400">
+              {bestScore > 0 ? (
+                <span>Best: {bestScore.toLocaleString()}</span>
+              ) : (
+                <span>No score yet</span>
+              )}
+            </div>
+
+            {/* Rank indicator */}
+            {isLoadingRank ? (
+              <div className="w-8 h-4 bg-gray-600 rounded animate-pulse" />
+            ) : rank ? (
+              <div className="text-xs px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded-full font-medium">
+                #{rank}
+              </div>
+            ) : null}
           </div>
 
-          {/* Rank indicator */}
+          {/* Top Score */}
           {isLoadingRank ? (
-            <div className="w-8 h-4 bg-gray-600 rounded animate-pulse" />
-          ) : rank ? (
-            <div className="text-xs px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded-full font-medium">
-              #{rank}
+            <div className="h-4 bg-gray-600 rounded animate-pulse w-3/4" />
+          ) : topScore ? (
+            <div className="text-xs text-gray-500 truncate">
+              <span className="text-yellow-500">#{1}</span>{' '}
+              <span className="text-gray-400">{topScore.playerName}</span>{' '}
+              <span className="text-gray-500">({topScore.score.toLocaleString()})</span>
             </div>
           ) : null}
         </div>

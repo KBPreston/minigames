@@ -4,37 +4,50 @@ import { LeaderboardService } from '../../core/LeaderboardService';
 import { GameCard } from '../ui/GameCard';
 import { OptionsModal } from '../ui/OptionsModal';
 
+interface TopScore {
+  playerName: string;
+  score: number;
+}
+
 export function Menu() {
   const games = getGameMetadata();
   const [ranks, setRanks] = useState<Record<string, number | null>>({});
+  const [topScores, setTopScores] = useState<Record<string, TopScore | null>>({});
   const [loadingRanks, setLoadingRanks] = useState(true);
   const [optionsOpen, setOptionsOpen] = useState(false);
 
-  // Fetch ranks once per session
+  // Fetch ranks and top scores once per session
   useEffect(() => {
     let cancelled = false;
 
-    async function fetchRanks() {
+    async function fetchData() {
       const newRanks: Record<string, number | null> = {};
+      const newTopScores: Record<string, TopScore | null> = {};
 
       for (const game of games) {
         if (game.disabled) continue;
         try {
-          const { rankInTop } = await LeaderboardService.fetchTopWithRank(game.id);
+          const [{ rankInTop }, topScore] = await Promise.all([
+            LeaderboardService.fetchTopWithRank(game.id),
+            LeaderboardService.fetchTopScore(game.id),
+          ]);
           if (cancelled) return;
           newRanks[game.id] = rankInTop;
+          newTopScores[game.id] = topScore;
         } catch {
           newRanks[game.id] = null;
+          newTopScores[game.id] = null;
         }
       }
 
       if (!cancelled) {
         setRanks(newRanks);
+        setTopScores(newTopScores);
         setLoadingRanks(false);
       }
     }
 
-    fetchRanks();
+    fetchData();
     return () => {
       cancelled = true;
     };
@@ -80,6 +93,7 @@ export function Menu() {
               key={game.id}
               game={game}
               rank={ranks[game.id]}
+              topScore={topScores[game.id]}
               isLoadingRank={loadingRanks && !game.disabled}
             />
           ))}
