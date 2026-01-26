@@ -8,6 +8,18 @@ interface GameInfoModalProps {
 }
 
 const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
+  'wrecking-ball': {
+    title: 'Wrecking Ball',
+    rules: [
+      'Drag to aim, release to launch balls at bricks',
+      'Colored bricks show HP - hit them that many times',
+      'Gray X bricks are indestructible - work around them',
+      'Pink bomb bricks explode and destroy nearby bricks!',
+      'Build combos by hitting multiple bricks with one ball',
+      'Blue shields at bottom save your ball (one use each)',
+      'Clear all destructible bricks to advance levels',
+    ],
+  },
   'bloom-burst': {
     title: 'Bloom Burst',
     rules: [
@@ -42,11 +54,11 @@ const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
     title: 'Color Flood',
     rules: [
       'Tap a color to flood from the top-left corner',
-      'All connected tiles change to your chosen color',
-      'Groups of exactly 6 same-colored tiles pop for +100',
+      'Capture cells for points - bigger captures = way more!',
+      'Groups of exactly 6 same-colored tiles pop for +100 bonus',
       'Fill the entire board with one color to win the round',
       'Round bonus: +500 plus +20 per move remaining',
-      'You have 25 moves per round - plan ahead!',
+      'You have 25 moves per round - plan big captures!',
     ],
   },
 };
