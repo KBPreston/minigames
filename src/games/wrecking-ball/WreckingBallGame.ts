@@ -46,7 +46,7 @@ export class WreckingBallGame implements GameInstance {
   private ballQueue: QueuedBall[] = [];
   private level: number = 1;
   private score: number = 0;
-  private pendingExplosions: { x: number; y: number; radius: number }[] = [];
+  private pendingExplosions: { x: number; y: number; radius: number; combo: number }[] = [];
 
   private launchX: number = 0;
   private launchY: number = 0;
@@ -305,7 +305,7 @@ export class WreckingBallGame implements GameInstance {
           if (brick.type === BrickType.Bomb) {
             // Bomb counts toward combo
             ball.combo = (ball.combo || 0) + 1;
-            this.triggerBombExplosion(brick);
+            this.triggerBombExplosion(brick, ball.combo);
           } else {
             // Increment combo for this ball
             ball.combo = (ball.combo || 0) + 1;
@@ -453,7 +453,7 @@ export class WreckingBallGame implements GameInstance {
     }, 500);
   }
 
-  private triggerBombExplosion(bomb: Brick) {
+  private triggerBombExplosion(bomb: Brick, combo: number) {
     const cx = bomb.x + bomb.width / 2;
     const cy = bomb.y + bomb.height / 2;
     const explosionRadius = bomb.width * 2.5; // Explosion affects nearby area
@@ -462,8 +462,9 @@ export class WreckingBallGame implements GameInstance {
     this.particles.push(...generateParticlesAt(cx, cy, BOMB_COLOR, 20));
     this.particles.push(...generateParticlesAt(cx, cy, '#fbbf24', 15)); // Orange particles
 
-    // Points for bomb
-    const bombPoints = 25 * this.level;
+    // Points for bomb with multiplier
+    const multiplier = 1 + (combo - 1) * 0.5;
+    const bombPoints = Math.floor(25 * this.level * multiplier);
     this.score += bombPoints;
     this.api.setScore(this.score);
     this.floatingTexts.push(createFloatingText(cx, cy, `BOOM! +${bombPoints}`, BOMB_COLOR, 20));
@@ -471,8 +472,8 @@ export class WreckingBallGame implements GameInstance {
     this.api.haptics.success();
     this.api.sounds.burst();
 
-    // Queue the explosion to destroy nearby bricks
-    this.pendingExplosions.push({ x: cx, y: cy, radius: explosionRadius });
+    // Queue the explosion to destroy nearby bricks, passing current combo
+    this.pendingExplosions.push({ x: cx, y: cy, radius: explosionRadius, combo });
   }
 
   private processBombExplosions() {
@@ -483,6 +484,7 @@ export class WreckingBallGame implements GameInstance {
 
     for (const explosion of explosions) {
       const { x: ex, y: ey, radius } = explosion;
+      let { combo } = explosion;
 
       // Find bricks in explosion radius
       for (const brick of this.bricks) {
@@ -499,19 +501,33 @@ export class WreckingBallGame implements GameInstance {
           // Destroy the brick
           brick.hp = 0;
 
-          const points = 10 * this.level;
+          // Increment combo and calculate multiplier
+          combo++;
+          const multiplier = 1 + (combo - 1) * 0.5;
+          const points = Math.floor(10 * this.level * multiplier);
           this.score += points;
           this.api.setScore(this.score);
 
-          // Visual effect
-          this.particles.push(...generateParticlesAt(brickCx, brickCy, brick.color, 6));
+          // Visual effect with combo feedback
+          if (combo >= 5) {
+            this.particles.push(...generateParticlesAt(brickCx, brickCy, brick.color, 16));
+            this.particles.push(...generateParticlesAt(brickCx, brickCy, '#fbbf24', 8));
+            this.floatingTexts.push(createFloatingText(brickCx, brickCy, `${combo}x +${points}`, '#f97316', 18));
+          } else if (combo >= 3) {
+            this.particles.push(...generateParticlesAt(brickCx, brickCy, brick.color, 10));
+            this.floatingTexts.push(createFloatingText(brickCx, brickCy, `${combo}x +${points}`, '#eab308', 16));
+          } else {
+            this.particles.push(...generateParticlesAt(brickCx, brickCy, brick.color, 6));
+            this.floatingTexts.push(createFloatingText(brickCx, brickCy, `+${points}`, '#fbbf24', 14));
+          }
 
-          // Chain reaction for bombs
+          // Chain reaction for bombs - pass along the combo
           if (brick.type === BrickType.Bomb) {
             this.pendingExplosions.push({
               x: brickCx,
               y: brickCy,
               radius: brick.width * 2.5,
+              combo,
             });
           }
         }
