@@ -2,6 +2,12 @@ import type { GameDefinition, GameMetadata } from './types';
 
 export const GAMES: GameDefinition[] = [
   {
+    id: 'tower-demolition',
+    name: 'Tower Demolition',
+    icon: '💥',
+    factory: () => import('../games/tower-demolition'),
+  },
+  {
     id: 'wrecking-ball',
     name: 'Wrecking Ball',
     icon: '🔴',
