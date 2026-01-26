@@ -83,13 +83,19 @@ export class WreckingBallGame implements GameInstance {
     // Optimized for vertical phone layout
     const sidePadding = 12;
     const topPadding = 50; // Space for level indicator
-    const bottomPadding = 100; // Space for launcher and ball indicators
+
+    // Launch position at bottom center
+    this.launchX = rect.width / 2;
+    this.launchY = rect.height - 60;
+
+    // Bottom boundary below the shields (shields are at launchY + 25)
+    const bottomBoundary = this.launchY + 50;
 
     this.bounds = {
       left: sidePadding,
       right: rect.width - sidePadding,
       top: topPadding,
-      bottom: rect.height - bottomPadding,
+      bottom: bottomBoundary,
     };
 
     // Calculate brick sizes - smaller bricks for more play area
@@ -111,10 +117,6 @@ export class WreckingBallGame implements GameInstance {
       brickHeight,
       brickGap: gap,
     };
-
-    // Launch position at bottom center
-    this.launchX = rect.width / 2;
-    this.launchY = rect.height - 60;
 
     this.render();
   };
