@@ -562,21 +562,25 @@ export class TowerDemolitionGame implements GameInstance {
     for (const explosion of this.explosions) {
       if (!explosion.active) continue;
 
-      const alpha = 1 - (explosion.radius / explosion.maxRadius);
+      // Ensure radius is never negative
+      const radius = Math.max(0, explosion.radius);
+      if (radius <= 0) continue;
+
+      const alpha = Math.max(0, 1 - (radius / explosion.maxRadius));
 
       ctx.fillStyle = `rgba(249, 115, 22, ${alpha * 0.3})`;
       ctx.beginPath();
-      ctx.arc(explosion.x, explosion.y, explosion.radius * 1.5, 0, Math.PI * 2);
+      ctx.arc(explosion.x, explosion.y, radius * 1.5, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = `rgba(251, 191, 36, ${alpha * 0.6})`;
       ctx.beginPath();
-      ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
+      ctx.arc(explosion.x, explosion.y, radius, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
       ctx.beginPath();
-      ctx.arc(explosion.x, explosion.y, explosion.radius * 0.3, 0, Math.PI * 2);
+      ctx.arc(explosion.x, explosion.y, radius * 0.3, 0, Math.PI * 2);
       ctx.fill();
     }
   }
