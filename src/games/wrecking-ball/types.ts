@@ -16,6 +16,7 @@ export enum BrickType {
   Normal = 'normal',
   Strong = 'strong',
   Indestructible = 'indestructible',
+  Shield = 'shield', // Protective walls that save balls, don't count for winning
 }
 
 export interface Brick {
@@ -46,6 +47,7 @@ export const HP_COLORS = [
 ];
 
 export const INDESTRUCTIBLE_COLOR = '#475569';
+export const SHIELD_COLOR = '#38bdf8'; // Light blue for protective shields
 
 export const BALL_COLOR = '#f8fafc';
 export const BALL_SPEED = 450; // pixels per second

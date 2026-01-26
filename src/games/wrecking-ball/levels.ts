@@ -1,4 +1,4 @@
-import { Brick, BrickType, Level, HP_COLORS, INDESTRUCTIBLE_COLOR } from './types';
+import { Brick, BrickType, Level, HP_COLORS, INDESTRUCTIBLE_COLOR, SHIELD_COLOR } from './types';
 
 const GRID_COLS = 8;
 const BASE_ROWS = 4;
@@ -14,6 +14,9 @@ export interface LevelConfig {
 function getBrickColor(type: BrickType, hp: number): string {
   if (type === BrickType.Indestructible) {
     return INDESTRUCTIBLE_COLOR;
+  }
+  if (type === BrickType.Shield) {
+    return SHIELD_COLOR;
   }
   // Color based on current HP - higher HP = warmer/redder color
   const colorIndex = Math.min(hp - 1, HP_COLORS.length - 1);
@@ -162,5 +165,10 @@ export function getDestructibleCount(bricks: Brick[]): number {
 }
 
 export function isLevelCleared(bricks: Brick[]): boolean {
-  return bricks.every(b => b.type === BrickType.Indestructible || b.hp <= 0);
+  // Shields and indestructible don't count toward clearing
+  return bricks.every(b =>
+    b.type === BrickType.Indestructible ||
+    b.type === BrickType.Shield ||
+    b.hp <= 0
+  );
 }

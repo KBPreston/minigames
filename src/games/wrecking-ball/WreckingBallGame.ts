@@ -1,5 +1,5 @@
 import type { GameAPI, GameInstance } from '../../core/types';
-import { Ball, Brick, BrickType, BALL_COLOR, BALL_SPEED, BALL_RADIUS } from './types';
+import { Ball, Brick, BrickType, BALL_COLOR, BALL_SPEED, BALL_RADIUS, SHIELD_COLOR } from './types';
 import { createBall, updateBall, calculateLaunchAngle, Bounds } from './physics';
 import { generateLevel, updateBrickColor, isLevelCleared, LevelConfig } from './levels';
 import {
@@ -22,6 +22,7 @@ export class WreckingBallGame implements GameInstance {
 
   private balls: Ball[] = [];
   private bricks: Brick[] = [];
+  private shields: Brick[] = [];
   private ballsRemaining: number = 0;
   private level: number = 1;
   private score: number = 0;
@@ -238,33 +239,39 @@ export class WreckingBallGame implements GameInstance {
     // Update balls
     let anyActive = false;
     const activeBricks = this.bricks.filter(b => b.hp > 0);
+    const activeShields = this.shields.filter(s => s.hp > 0);
+    const allCollidables = [...activeBricks, ...activeShields];
 
     for (const ball of this.balls) {
       if (!ball.active) continue;
       anyActive = true;
 
-      const result = updateBall(ball, dt, this.bounds, activeBricks);
+      const result = updateBall(ball, dt, this.bounds, allCollidables);
 
       if (result.destroyed) {
-        // Remove destroyed brick
-        const idx = this.bricks.indexOf(result.destroyed);
-        if (idx >= 0) {
-          const brick = this.bricks[idx];
-          // Add score
+        const isShield = this.shields.includes(result.destroyed);
+
+        if (isShield) {
+          // Shield destroyed - no score, just visual feedback
+          const shield = result.destroyed;
+          const cx = shield.x + shield.width / 2;
+          const cy = shield.y + shield.height / 2;
+          this.particles.push(...generateParticlesAt(cx, cy, SHIELD_COLOR, 6));
+          this.floatingTexts.push(createFloatingText(cx, cy, 'SAVED!', SHIELD_COLOR, 14));
+          this.api.haptics.tap();
+        } else {
+          // Regular brick destroyed
+          const brick = result.destroyed;
           const points = 10 * this.level;
           this.score += points;
           this.api.setScore(this.score);
 
-          // Particles
           const cx = brick.x + brick.width / 2;
           const cy = brick.y + brick.height / 2;
           this.particles.push(...generateParticlesAt(cx, cy, brick.color, 8));
           this.floatingTexts.push(createFloatingText(cx, cy, `+${points}`, '#fbbf24', 16));
-
           this.api.haptics.tap();
         }
-      } else if (result.exited) {
-        // Ball exited bottom
       }
     }
 
@@ -327,6 +334,7 @@ export class WreckingBallGame implements GameInstance {
     this.bricks = levelData.bricks;
     this.ballsRemaining = levelData.ballCount;
     this.balls = [];
+    this.createShields();
   }
 
   private triggerGameOver() {
@@ -347,6 +355,7 @@ export class WreckingBallGame implements GameInstance {
 
     this.drawHUD();
     this.drawBricks();
+    this.drawShields();
     this.drawBalls();
     this.drawAimLine();
     this.drawLauncher();
@@ -434,6 +443,39 @@ export class WreckingBallGame implements GameInstance {
     }
   }
 
+  private drawShields() {
+    const { ctx } = this;
+
+    for (const shield of this.shields) {
+      if (shield.hp <= 0) continue;
+
+      // Draw shield with glow effect
+      ctx.shadowColor = SHIELD_COLOR;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = SHIELD_COLOR;
+      ctx.beginPath();
+      ctx.roundRect(shield.x, shield.y, shield.width, shield.height, 6);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Draw shield icon/pattern
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 2;
+      const cx = shield.x + shield.width / 2;
+      const cy = shield.y + shield.height / 2;
+      // Small shield icon
+      ctx.beginPath();
+      ctx.moveTo(cx - 6, cy - 3);
+      ctx.lineTo(cx, cy - 5);
+      ctx.lineTo(cx + 6, cy - 3);
+      ctx.lineTo(cx + 6, cy + 2);
+      ctx.lineTo(cx, cy + 5);
+      ctx.lineTo(cx - 6, cy + 2);
+      ctx.closePath();
+      ctx.stroke();
+    }
+  }
+
   private drawBalls() {
     const { ctx } = this;
 
@@ -511,6 +553,40 @@ export class WreckingBallGame implements GameInstance {
     ctx.fill();
   }
 
+  private createShields() {
+    const rect = this.container.getBoundingClientRect();
+    const shieldWidth = 50;
+    const shieldHeight = 12;
+    const shieldY = this.launchY + 25; // Below the launcher
+    const gap = 20;
+
+    // Two shields, one on each side of center
+    const centerX = rect.width / 2;
+
+    this.shields = [
+      {
+        x: centerX - gap / 2 - shieldWidth,
+        y: shieldY,
+        width: shieldWidth,
+        height: shieldHeight,
+        hp: 1,
+        maxHp: 1,
+        type: BrickType.Shield,
+        color: SHIELD_COLOR,
+      },
+      {
+        x: centerX + gap / 2,
+        y: shieldY,
+        width: shieldWidth,
+        height: shieldHeight,
+        hp: 1,
+        maxHp: 1,
+        type: BrickType.Shield,
+        color: SHIELD_COLOR,
+      },
+    ];
+  }
+
   start() {
     this.level = 1;
     this.score = 0;
@@ -522,6 +598,7 @@ export class WreckingBallGame implements GameInstance {
     const levelData = generateLevel(this.level, this.levelConfig);
     this.bricks = levelData.bricks;
     this.ballsRemaining = levelData.ballCount;
+    this.createShields();
 
     this.api.setScore(0);
     this.render();
