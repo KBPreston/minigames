@@ -64,6 +64,7 @@ export class TowerDemolitionGame implements GameInstance {
   private particles: Particle[] = [];
   private floatingTexts: FloatingText[] = [];
   private lastTouchTime: number = 0;
+  private lastPlacementTime: number = 0; // Debounce for placement
 
   constructor(container: HTMLElement, api: GameAPI) {
     this.container = container;
@@ -130,6 +131,13 @@ export class TowerDemolitionGame implements GameInstance {
   };
 
   private placeDynamite(x: number, y: number) {
+    // Debounce - prevent multiple placements within 500ms
+    const now = Date.now();
+    if (now - this.lastPlacementTime < 500) return;
+
+    // Double-check state (belt and suspenders)
+    if (this.gameState !== GameState.Ready) return;
+
     if (this.dynamiteRemaining <= 0) {
       this.floatingTexts.push(createFloatingText(x, y, 'No dynamite left!', '#f87171', 16));
       this.api.sounds.invalid();
@@ -155,8 +163,10 @@ export class TowerDemolitionGame implements GameInstance {
       return;
     }
 
-    this.dynamiteRemaining--;
+    // Immediately lock state to prevent duplicate calls
+    this.lastPlacementTime = now;
     this.gameState = GameState.Exploding;
+    this.dynamiteRemaining--;
     this.blocksDestroyedThisTurn = 0;
     this.previousActiveCount = getActiveBlockCount(this.blocks);
 
