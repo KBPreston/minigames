@@ -1,4 +1,4 @@
-import { Ball, Brick, BrickType, Vec2 } from './types';
+import { Ball, Brick, BrickType, BallType, Vec2, MINI_BALL_RADIUS } from './types';
 
 export interface Bounds {
   left: number;
@@ -142,7 +142,15 @@ export function updateBall(
 }
 
 // Create a ball with given direction
-export function createBall(x: number, y: number, angle: number, speed: number, radius: number): Ball {
+export function createBall(
+  x: number,
+  y: number,
+  angle: number,
+  speed: number,
+  radius: number,
+  type: BallType = BallType.Normal,
+  isMiniBall: boolean = false
+): Ball {
   return {
     x,
     y,
@@ -150,7 +158,24 @@ export function createBall(x: number, y: number, angle: number, speed: number, r
     vy: Math.sin(angle) * speed,
     radius,
     active: true,
+    type,
+    isMiniBall,
   };
+}
+
+// Create triple shot balls (3 balls in a fork pattern)
+export function createTripleShotBalls(
+  x: number,
+  y: number,
+  angle: number,
+  speed: number
+): Ball[] {
+  const spreadAngle = Math.PI / 12; // 15 degrees spread
+  return [
+    createBall(x, y, angle - spreadAngle, speed, MINI_BALL_RADIUS, BallType.TripleShot, true),
+    createBall(x, y, angle, speed, MINI_BALL_RADIUS, BallType.TripleShot, true),
+    createBall(x, y, angle + spreadAngle, speed, MINI_BALL_RADIUS, BallType.TripleShot, true),
+  ];
 }
 
 // Calculate launch angle from drag
@@ -168,4 +193,117 @@ export function calculateLaunchAngle(startX: number, startY: number, endX: numbe
   if (angle < -Math.PI * 0.85) angle = -Math.PI * 0.85;
 
   return angle;
+}
+
+// Trajectory point for prediction line
+export interface TrajectoryPoint {
+  x: number;
+  y: number;
+  bounce: boolean; // True if this point is a bounce location
+}
+
+// Calculate predicted trajectory with bounces
+export function calculateTrajectory(
+  startX: number,
+  startY: number,
+  angle: number,
+  speed: number,
+  radius: number,
+  bounds: Bounds,
+  bricks: Brick[],
+  maxBounces: number = 3,
+  maxDistance: number = 800
+): TrajectoryPoint[] {
+  const points: TrajectoryPoint[] = [{ x: startX, y: startY, bounce: false }];
+
+  let x = startX;
+  let y = startY;
+  let vx = Math.cos(angle) * speed;
+  let vy = Math.sin(angle) * speed;
+  let bounces = 0;
+  let distance = 0;
+  const step = 2; // Simulation step size in pixels
+
+  while (bounces < maxBounces && distance < maxDistance) {
+    // Normalize and step
+    const mag = Math.sqrt(vx * vx + vy * vy);
+    const dx = (vx / mag) * step;
+    const dy = (vy / mag) * step;
+
+    x += dx;
+    y += dy;
+    distance += step;
+
+    let bounced = false;
+
+    // Wall collisions
+    if (x - radius < bounds.left) {
+      x = bounds.left + radius;
+      vx = Math.abs(vx);
+      bounced = true;
+    }
+    if (x + radius > bounds.right) {
+      x = bounds.right - radius;
+      vx = -Math.abs(vx);
+      bounced = true;
+    }
+    if (y - radius < bounds.top) {
+      y = bounds.top + radius;
+      vy = Math.abs(vy);
+      bounced = true;
+    }
+
+    // Check brick collisions (simplified - just check bounding box)
+    for (const brick of bricks) {
+      if (brick.hp <= 0) continue;
+
+      const closestX = Math.max(brick.x, Math.min(x, brick.x + brick.width));
+      const closestY = Math.max(brick.y, Math.min(y, brick.y + brick.height));
+      const distX = x - closestX;
+      const distY = y - closestY;
+      const distSq = distX * distX + distY * distY;
+
+      if (distSq < radius * radius) {
+        // Hit a brick - determine which side
+        const overlapLeft = (x + radius) - brick.x;
+        const overlapRight = (brick.x + brick.width) - (x - radius);
+        const overlapTop = (y + radius) - brick.y;
+        const overlapBottom = (brick.y + brick.height) - (y - radius);
+
+        const minOverlapX = Math.min(overlapLeft, overlapRight);
+        const minOverlapY = Math.min(overlapTop, overlapBottom);
+
+        if (minOverlapX < minOverlapY) {
+          vx = -vx;
+          x += overlapLeft < overlapRight ? -radius : radius;
+        } else {
+          vy = -vy;
+          y += overlapTop < overlapBottom ? -radius : radius;
+        }
+
+        bounced = true;
+        break;
+      }
+    }
+
+    if (bounced) {
+      points.push({ x, y, bounce: true });
+      bounces++;
+    }
+
+    // Stop if going below play area
+    if (y > bounds.bottom) {
+      break;
+    }
+  }
+
+  // Add final point
+  if (points.length > 0) {
+    const last = points[points.length - 1];
+    if (last.x !== x || last.y !== y) {
+      points.push({ x, y, bounce: false });
+    }
+  }
+
+  return points;
 }

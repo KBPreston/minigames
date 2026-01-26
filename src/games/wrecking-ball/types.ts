@@ -40,7 +40,7 @@ export interface Brick {
 
 export interface Level {
   bricks: Brick[];
-  ballCount: number;
+  ballQueue: QueuedBall[];
 }
 
 // Colors based on HP - index 0 = 1HP, index 1 = 2HP, etc.
@@ -56,7 +56,15 @@ export const HP_COLORS = [
 
 export const INDESTRUCTIBLE_COLOR = '#475569';
 export const SHIELD_COLOR = '#38bdf8'; // Light blue for protective shields
+export const BOMB_COLOR = '#f43f5e'; // Rose/pink for bombs
 
 export const BALL_COLOR = '#f8fafc';
+export const TRIPLE_SHOT_COLOR = '#a855f7'; // Purple for triple shot
 export const BALL_SPEED = 450; // pixels per second
 export const BALL_RADIUS = 8;
+export const MINI_BALL_RADIUS = 5; // Smaller radius for triple shot sub-balls
+
+// Upcoming ball queue item
+export interface QueuedBall {
+  type: BallType;
+}

@@ -1,7 +1,8 @@
-import { Brick, BrickType, Level, HP_COLORS, INDESTRUCTIBLE_COLOR, SHIELD_COLOR } from './types';
+import { Brick, BrickType, BallType, Level, HP_COLORS, INDESTRUCTIBLE_COLOR, SHIELD_COLOR, BOMB_COLOR, QueuedBall } from './types';
 
 const GRID_COLS = 8;
 const BASE_ROWS = 4;
+const CEILING_GAP = 40; // Gap at top for ball maneuvering
 
 export interface LevelConfig {
   gridOffsetX: number;
@@ -17,6 +18,9 @@ function getBrickColor(type: BrickType, hp: number): string {
   }
   if (type === BrickType.Shield) {
     return SHIELD_COLOR;
+  }
+  if (type === BrickType.Bomb) {
+    return BOMB_COLOR;
   }
   // Color based on current HP - higher HP = warmer/redder color
   const colorIndex = Math.min(hp - 1, HP_COLORS.length - 1);
@@ -44,6 +48,9 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
   const bricks: Brick[] = [];
   const { gridOffsetX, gridOffsetY, brickWidth, brickHeight, brickGap } = config;
 
+  // Add ceiling gap so balls can maneuver at the top
+  const effectiveGridOffsetY = gridOffsetY + CEILING_GAP;
+
   // Row count increases slowly: 4 rows at start, +1 row every 3 levels, max 7
   const rows = Math.min(BASE_ROWS + Math.floor((levelNum - 1) / 3), 7);
 
@@ -53,6 +60,9 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
 
   // Indestructible: none until level 5, then very slowly increase
   const indestructibleChance = levelNum < 5 ? 0 : Math.min((levelNum - 4) * 0.025, 0.12);
+
+  // Bomb bricks: start at level 2, gradually increase
+  const bombChance = levelNum < 2 ? 0 : Math.min((levelNum - 1) * 0.04, 0.15);
 
   // Strong brick HP: starts at 2, increases every 4 levels
   const maxStrongHp = Math.min(2 + Math.floor((levelNum - 3) / 4), 4);
@@ -103,7 +113,12 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
         type = BrickType.Indestructible;
         hp = 1;
         maxHp = 1;
-      } else if (rand < effectiveIndestructibleChance + strongChance) {
+      } else if (rand < effectiveIndestructibleChance + bombChance) {
+        // Bomb brick - always 1 HP
+        type = BrickType.Bomb;
+        hp = 1;
+        maxHp = 1;
+      } else if (rand < effectiveIndestructibleChance + bombChance + strongChance) {
         type = BrickType.Strong;
         // HP weighted toward lower values
         const hpRoll = Math.random();
@@ -122,7 +137,7 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
       }
 
       const x = gridOffsetX + col * (brickWidth + brickGap);
-      const y = gridOffsetY + row * (brickHeight + brickGap);
+      const y = effectiveGridOffsetY + row * (brickHeight + brickGap);
 
       bricks.push({
         x,
@@ -138,7 +153,9 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
   }
 
   // Ensure we don't have an impossible level (all indestructible)
-  const destructibleCount = bricks.filter(b => b.type !== BrickType.Indestructible).length;
+  const destructibleCount = bricks.filter(b =>
+    b.type !== BrickType.Indestructible && b.type !== BrickType.Shield
+  ).length;
   if (destructibleCount === 0 && bricks.length > 0) {
     // Convert some indestructible to normal
     const toConvert = bricks.filter(b => b.type === BrickType.Indestructible).slice(0, 5);
@@ -150,10 +167,35 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
     }
   }
 
-  // Ball count: start with 5, gain 1 every 2 levels, max 10
-  const ballCount = Math.min(5 + Math.floor((levelNum - 1) / 2), 10);
+  // Generate ball queue
+  const ballQueue = generateBallQueue(levelNum);
 
-  return { bricks, ballCount };
+  return { bricks, ballQueue };
+}
+
+// Generate a queue of balls with occasional power-ups
+export function generateBallQueue(levelNum: number): QueuedBall[] {
+  // Ball count: start with 5, gain 1 every 2 levels, max 10
+  const count = Math.min(5 + Math.floor((levelNum - 1) / 2), 10);
+
+  // Triple shot chance: starts at level 3, increases slowly
+  const tripleShotChance = levelNum < 3 ? 0 : Math.min((levelNum - 2) * 0.08, 0.25);
+
+  const queue: QueuedBall[] = [];
+  let lastWasSpecial = false;
+
+  for (let i = 0; i < count; i++) {
+    // Don't allow consecutive special balls
+    if (!lastWasSpecial && Math.random() < tripleShotChance) {
+      queue.push({ type: BallType.TripleShot });
+      lastWasSpecial = true;
+    } else {
+      queue.push({ type: BallType.Normal });
+      lastWasSpecial = false;
+    }
+  }
+
+  return queue;
 }
 
 export function updateBrickColor(brick: Brick): void {

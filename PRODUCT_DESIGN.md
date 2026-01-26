@@ -135,7 +135,9 @@ Profile
 - Stored in localStorage: minihub.playerName
 
 Gameplay
-- Haptics toggle (default off)
+- Sound Effects toggle (default on)
+- Sound Volume slider (0-100%, default 50%, visible when sound enabled)
+- Haptics toggle (default on)
 
 Display
 - Reduce Motion toggle
@@ -151,6 +153,8 @@ About
 - Version and build date string
 
 Persistence keys:
+- minihub.settings.sound
+- minihub.settings.soundVolume
 - minihub.settings.haptics
 - minihub.settings.reduceMotion
 - minihub.settings.debug (optional)
@@ -245,6 +249,24 @@ Utilities:
 - haptics.success()
 - logEvent(name, payload)
 
+Sound Effects (via sounds object):
+- sounds.place() - Basic piece placement
+- sounds.select() - Piece selection change
+- sounds.invalid() - Invalid action feedback
+- sounds.clearSingle() - Single line/row clear
+- sounds.clearMulti(count) - Multiple lines cleared
+- sounds.combo(multiplier) - Combo hit
+- sounds.burst() - Burst/explosion effect
+- sounds.drop() - Block dropping (Snap Merge)
+- sounds.merge(value) - Block merge (Snap Merge)
+- sounds.flood() - Color flood action
+- sounds.regionClear() - Region cleared (Color Flood)
+- sounds.roundComplete() - Round complete
+- sounds.gameStart() - Game start
+- sounds.gameOver() - Game over
+- sounds.newHighScore() - New high score celebration
+- sounds.warning() - Low moves/danger warning
+
 Rule:
 - Games call api.gameOver, hub shows overlay.
 
@@ -268,7 +290,88 @@ Back button:
 - On visible: hub calls game.resume() if no overlay open
 - On route change: hub calls destroy() and removes listeners
 
-## 10. Firebase leaderboard (internal playtest)
+## 10. Sound System
+
+The sound system uses programmatic Web Audio API synthesis - no audio files needed.
+
+### 10.1 Architecture
+
+Location: src/core/SoundEngine.ts
+
+The SoundEngine is a singleton class that:
+- Creates and manages an AudioContext
+- Synthesizes all sounds using oscillators and noise generators
+- Respects the user's sound preference from settings
+- Supports volume control (0-100% mapped to 0-0.5 gain to prevent distortion)
+- Handles browser autoplay policy by resuming context on first interaction
+
+### 10.2 Sound Categories
+
+UI Sounds (for menus and overlays):
+- uiClick() - Soft click for buttons
+- uiToggle(on) - Toggle switch sound
+- uiOpen() - Modal/sheet open
+- uiClose() - Modal/sheet close
+- uiBack() - Navigation/back
+
+Game Sounds - Generic (for all games):
+- place() - Piece placed / basic action
+- select() - Piece selection change
+- invalid() - Invalid action feedback
+- clearSingle() - Single line clear
+- clearMulti(count) - Multiple lines, escalating tone
+- combo(multiplier) - Combo hit, pitch scales with multiplier
+- burst() - Explosion effect
+
+Game Sounds - Snap Merge specific:
+- drop() - Block dropping
+- merge(value) - Block merge, pitch scales with value
+
+Game Sounds - Color Flood specific:
+- flood() - Color flood action
+- regionClear() - Region cleared
+- roundComplete() - Round victory
+
+Game State:
+- gameStart() - Game starting
+- gameOver() - Game ended
+- newHighScore() - High score celebration fanfare
+- warning() - Low moves/danger warning
+
+### 10.3 Adding Sounds to New Games
+
+When implementing a new game:
+
+1. Use generic sounds where applicable:
+   - api.sounds.place() for basic placements
+   - api.sounds.clearSingle()/clearMulti() for clears
+   - api.sounds.combo() for combo multipliers
+   - api.sounds.gameStart() when game begins
+   - api.sounds.gameOver() is handled by GameOverOverlay
+
+2. If your game needs unique sounds, add them to SoundEngine.ts:
+   - Add a new method following the existing patterns
+   - Add the method to the GameAPI sounds interface in types.ts
+   - Wire it through GameHost.tsx
+
+3. Pair sounds with haptics for multi-sensory feedback:
+   ```typescript
+   this.api.haptics.success();
+   this.api.sounds.clearSingle();
+   ```
+
+4. Use sounds sparingly - not every frame, only on meaningful events
+
+### 10.4 Sound Design Guidelines
+
+- Keep sounds short (50-200ms for feedback, up to 500ms for celebrations)
+- Use sine waves for pleasant tones, triangle for softer sounds
+- Use square waves sparingly (harsh, for warnings)
+- Filtered noise adds texture to impacts and explosions
+- Escalating pitch indicates positive progression
+- Descending pitch indicates failure or loss
+
+## 11. Firebase leaderboard (internal playtest)
 
 Firebase products:
 - Anonymous Auth
@@ -301,7 +404,7 @@ Auth:
 - Sign in anonymously on app boot.
 - If auth fails, gameplay still works, leaderboard UI shows offline.
 
-## 11. Game designs to add (MVP ready)
+## 12. Game designs to add (MVP ready)
 
 All games:
 - Endless, no timers.
@@ -310,7 +413,7 @@ All games:
 - Every turn grants points and feedback.
 - Lose when board is full or no legal moves.
 
-### 11.1 Bloom Burst (bloom-burst)
+### 12.1 Bloom Burst (bloom-burst)
 
 Core mechanic:
 - Place one seed piece (Block Blast style polyomino).
@@ -340,7 +443,7 @@ Fail:
 Notes:
 - Determinism is critical. No random growth ticks.
 
-### 11.2 Snap Merge (snap-merge)
+### 12.2 Snap Merge (snap-merge)
 
 Core mechanic:
 - Place one magnet piece made of blocks (polyomino).
@@ -370,7 +473,7 @@ Pressure ramp:
 Fail:
 - No legal placement remains (or board full).
 
-### 11.3 Color Flood (color-flood)
+### 12.3 Color Flood (color-flood)
 
 Core mechanic:
 - Place one colored pipe piece (polyomino). Each tile has a color.
@@ -397,7 +500,7 @@ Scoring:
 Fail:
 - Board full or no legal placement.
 
-## 12. Outstanding functionality checklist
+## 13. Outstanding functionality checklist
 
 This list should be implemented before adding more games:
 
@@ -413,14 +516,17 @@ This list should be implemented before adding more games:
 - Menu stats strip shows best and rank and handles loading and offline.
 - Overlay state machine prevents stacking.
 
-## 13. Acceptance criteria
+## 14. Acceptance criteria
 
 - No scroll during play.
 - Every move produces points and satisfying feedback.
 - Clears produce larger explosions and stronger feedback.
+- Sound effects play for all meaningful actions when enabled.
+- Haptic feedback triggers alongside sounds for mobile devices.
 - All games end naturally.
 - Adding a new game requires:
   - adding a folder under src/games
   - exporting module
   - registering in GameRegistry
+  - implementing appropriate sound effects via api.sounds
 

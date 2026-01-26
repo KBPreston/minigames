@@ -1,6 +1,26 @@
 import type { GameAPI, GameInstance } from '../../core/types';
-import { Ball, Brick, BrickType, BALL_COLOR, BALL_SPEED, BALL_RADIUS, SHIELD_COLOR } from './types';
-import { createBall, updateBall, calculateLaunchAngle, Bounds } from './physics';
+import {
+  Ball,
+  Brick,
+  BrickType,
+  BallType,
+  QueuedBall,
+  BALL_COLOR,
+  BALL_SPEED,
+  BALL_RADIUS,
+  MINI_BALL_RADIUS,
+  SHIELD_COLOR,
+  BOMB_COLOR,
+  TRIPLE_SHOT_COLOR,
+} from './types';
+import {
+  createBall,
+  createTripleShotBalls,
+  updateBall,
+  calculateLaunchAngle,
+  calculateTrajectory,
+  Bounds,
+} from './physics';
 import { generateLevel, updateBrickColor, isLevelCleared, LevelConfig } from './levels';
 import {
   Particle,
@@ -23,9 +43,10 @@ export class WreckingBallGame implements GameInstance {
   private balls: Ball[] = [];
   private bricks: Brick[] = [];
   private shields: Brick[] = [];
-  private ballsRemaining: number = 0;
+  private ballQueue: QueuedBall[] = [];
   private level: number = 1;
   private score: number = 0;
+  private pendingExplosions: { x: number; y: number; radius: number }[] = [];
 
   private launchX: number = 0;
   private launchY: number = 0;
@@ -150,7 +171,7 @@ export class WreckingBallGame implements GameInstance {
   private handleTouchStart = (e: TouchEvent) => {
     if (this.isPaused || this.isGameOver) return;
     if (this.balls.some(b => b.active)) return; // Can't aim while balls are moving
-    if (this.ballsRemaining <= 0) return;
+    if (this.ballQueue.length <= 0) return;
 
     e.preventDefault();
     const touch = e.touches[0];
@@ -175,7 +196,7 @@ export class WreckingBallGame implements GameInstance {
   private handleMouseDown = (e: MouseEvent) => {
     if (this.isPaused || this.isGameOver) return;
     if (this.balls.some(b => b.active)) return;
-    if (this.ballsRemaining <= 0) return;
+    if (this.ballQueue.length <= 0) return;
 
     const pos = this.getEventPosition(e.clientX, e.clientY);
     this.startAiming(pos.x, pos.y);
@@ -209,17 +230,27 @@ export class WreckingBallGame implements GameInstance {
 
   private finishAiming() {
     if (!this.isAiming) return;
+    if (this.ballQueue.length <= 0) return;
     this.isAiming = false;
 
     // Calculate launch angle
     const angle = calculateLaunchAngle(this.aimStartX, this.aimStartY, this.aimEndX, this.aimEndY);
 
-    // Create and launch ball
-    const ball = createBall(this.launchX, this.launchY, angle, BALL_SPEED, BALL_RADIUS);
-    this.balls.push(ball);
-    this.ballsRemaining--;
+    // Get the next ball from queue
+    const queuedBall = this.ballQueue.shift()!;
+
+    // Create and launch ball(s) based on type
+    if (queuedBall.type === BallType.TripleShot) {
+      const tripleBalls = createTripleShotBalls(this.launchX, this.launchY, angle, BALL_SPEED);
+      this.balls.push(...tripleBalls);
+      this.api.sounds.burst();
+    } else {
+      const ball = createBall(this.launchX, this.launchY, angle, BALL_SPEED, BALL_RADIUS, BallType.Normal);
+      this.balls.push(ball);
+    }
 
     this.api.haptics.tap();
+    this.api.sounds.place();
     this.startGameLoop();
   }
 
@@ -264,18 +295,28 @@ export class WreckingBallGame implements GameInstance {
         } else {
           // Regular brick destroyed
           const brick = result.destroyed;
-          const points = 10 * this.level;
-          this.score += points;
-          this.api.setScore(this.score);
 
-          const cx = brick.x + brick.width / 2;
-          const cy = brick.y + brick.height / 2;
-          this.particles.push(...generateParticlesAt(cx, cy, brick.color, 8));
-          this.floatingTexts.push(createFloatingText(cx, cy, `+${points}`, '#fbbf24', 16));
-          this.api.haptics.tap();
+          // Check if it's a bomb - trigger explosion
+          if (brick.type === BrickType.Bomb) {
+            this.triggerBombExplosion(brick);
+          } else {
+            const points = 10 * this.level;
+            this.score += points;
+            this.api.setScore(this.score);
+
+            const cx = brick.x + brick.width / 2;
+            const cy = brick.y + brick.height / 2;
+            this.particles.push(...generateParticlesAt(cx, cy, brick.color, 8));
+            this.floatingTexts.push(createFloatingText(cx, cy, `+${points}`, '#fbbf24', 16));
+            this.api.haptics.tap();
+            this.api.sounds.clearSingle();
+          }
         }
       }
     }
+
+    // Process pending bomb explosions
+    this.processBombExplosions();
 
     // Update brick colors for damaged bricks
     for (const brick of this.bricks) {
@@ -295,7 +336,7 @@ export class WreckingBallGame implements GameInstance {
     }
 
     // Check game over (no balls remaining and none active)
-    if (!anyActive && this.ballsRemaining <= 0 && !this.isGameOver) {
+    if (!anyActive && this.ballQueue.length <= 0 && !this.isGameOver) {
       if (!isLevelCleared(this.bricks)) {
         this.triggerGameOver();
         return;
@@ -334,9 +375,12 @@ export class WreckingBallGame implements GameInstance {
     // Generate new level
     const levelData = generateLevel(this.level, this.levelConfig);
     this.bricks = levelData.bricks;
-    this.ballsRemaining = levelData.ballCount;
+    this.ballQueue = levelData.ballQueue;
     this.balls = [];
+    this.pendingExplosions = [];
     this.createShields();
+
+    this.api.sounds.roundComplete();
   }
 
   private triggerGameOver() {
@@ -349,6 +393,81 @@ export class WreckingBallGame implements GameInstance {
         this.api.gameOver(this.score);
       }
     }, 500);
+  }
+
+  private triggerBombExplosion(bomb: Brick) {
+    const cx = bomb.x + bomb.width / 2;
+    const cy = bomb.y + bomb.height / 2;
+    const explosionRadius = bomb.width * 2.5; // Explosion affects nearby area
+
+    // Visual explosion effect
+    this.particles.push(...generateParticlesAt(cx, cy, BOMB_COLOR, 20));
+    this.particles.push(...generateParticlesAt(cx, cy, '#fbbf24', 15)); // Orange particles
+
+    // Points for bomb
+    const bombPoints = 25 * this.level;
+    this.score += bombPoints;
+    this.api.setScore(this.score);
+    this.floatingTexts.push(createFloatingText(cx, cy, `BOOM! +${bombPoints}`, BOMB_COLOR, 20));
+
+    this.api.haptics.success();
+    this.api.sounds.burst();
+
+    // Queue the explosion to destroy nearby bricks
+    this.pendingExplosions.push({ x: cx, y: cy, radius: explosionRadius });
+  }
+
+  private processBombExplosions() {
+    if (this.pendingExplosions.length === 0) return;
+
+    const explosions = [...this.pendingExplosions];
+    this.pendingExplosions = [];
+
+    for (const explosion of explosions) {
+      const { x: ex, y: ey, radius } = explosion;
+
+      // Find bricks in explosion radius
+      for (const brick of this.bricks) {
+        if (brick.hp <= 0) continue;
+        if (brick.type === BrickType.Indestructible) continue;
+
+        const brickCx = brick.x + brick.width / 2;
+        const brickCy = brick.y + brick.height / 2;
+        const dx = brickCx - ex;
+        const dy = brickCy - ey;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < radius) {
+          // Destroy the brick
+          brick.hp = 0;
+
+          const points = 10 * this.level;
+          this.score += points;
+          this.api.setScore(this.score);
+
+          // Visual effect
+          this.particles.push(...generateParticlesAt(brickCx, brickCy, brick.color, 6));
+
+          // Chain reaction for bombs
+          if (brick.type === BrickType.Bomb) {
+            this.pendingExplosions.push({
+              x: brickCx,
+              y: brickCy,
+              radius: brick.width * 2.5,
+            });
+          }
+        }
+      }
+    }
+
+    // Show chain bonus if multiple explosions
+    if (this.pendingExplosions.length > 0) {
+      const rect = this.container.getBoundingClientRect();
+      this.floatingTexts.push(
+        createFloatingText(rect.width / 2, rect.height / 2, 'CHAIN!', '#f97316', 24)
+      );
+      this.api.sounds.combo(2);
+    }
   }
 
   private render() {
@@ -387,22 +506,41 @@ export class WreckingBallGame implements GameInstance {
     // Ball indicators near the launcher
     const ballIndicatorY = rect.height - 25;
     const ballIndicatorSpacing = 18;
-    const totalWidth = (this.ballsRemaining - 1) * ballIndicatorSpacing;
+    const displayCount = Math.min(this.ballQueue.length, 10);
+    const totalWidth = (displayCount - 1) * ballIndicatorSpacing;
     const startX = rect.width / 2 - totalWidth / 2;
 
-    ctx.fillStyle = BALL_COLOR;
-    for (let i = 0; i < this.ballsRemaining; i++) {
-      ctx.beginPath();
-      ctx.arc(startX + i * ballIndicatorSpacing, ballIndicatorY, 5, 0, Math.PI * 2);
-      ctx.fill();
+    for (let i = 0; i < displayCount; i++) {
+      const queuedBall = this.ballQueue[i];
+      const isTripleShot = queuedBall.type === BallType.TripleShot;
+
+      ctx.fillStyle = isTripleShot ? TRIPLE_SHOT_COLOR : BALL_COLOR;
+
+      if (isTripleShot) {
+        // Draw three small dots for triple shot
+        const cx = startX + i * ballIndicatorSpacing;
+        ctx.beginPath();
+        ctx.arc(cx - 3, ballIndicatorY - 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx + 3, ballIndicatorY - 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx, ballIndicatorY + 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(startX + i * ballIndicatorSpacing, ballIndicatorY, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
-    // "x N" label if many balls
-    if (this.ballsRemaining > 0) {
+    // "x N" label
+    if (this.ballQueue.length > 0) {
       ctx.fillStyle = '#94a3b8';
       ctx.font = '12px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(`x${this.ballsRemaining}`, rect.width / 2, rect.height - 8);
+      ctx.fillText(`x${this.ballQueue.length}`, rect.width / 2, rect.height - 8);
     }
   }
 
@@ -412,13 +550,20 @@ export class WreckingBallGame implements GameInstance {
     for (const brick of this.bricks) {
       if (brick.hp <= 0) continue;
 
+      // Special glow for bomb blocks
+      if (brick.type === BrickType.Bomb) {
+        ctx.shadowColor = BOMB_COLOR;
+        ctx.shadowBlur = 8;
+      }
+
       ctx.fillStyle = brick.color;
       ctx.beginPath();
       ctx.roundRect(brick.x, brick.y, brick.width, brick.height, 3);
       ctx.fill();
+      ctx.shadowBlur = 0;
 
       // Draw HP number for any brick with more than 1 HP
-      if (brick.type !== BrickType.Indestructible && brick.hp > 1) {
+      if (brick.type !== BrickType.Indestructible && brick.type !== BrickType.Bomb && brick.hp > 1) {
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.font = `bold ${Math.min(brick.height * 0.6, 14)}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
@@ -441,6 +586,33 @@ export class WreckingBallGame implements GameInstance {
         ctx.moveTo(brick.x + brick.width - pad, brick.y + pad);
         ctx.lineTo(brick.x + pad, brick.y + brick.height - pad);
         ctx.stroke();
+      }
+
+      // Draw bomb icon
+      if (brick.type === BrickType.Bomb) {
+        const cx = brick.x + brick.width / 2;
+        const cy = brick.y + brick.height / 2;
+        const size = Math.min(brick.width, brick.height) * 0.35;
+
+        // Bomb body (circle)
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.arc(cx, cy + 1, size, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Fuse
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - size + 1);
+        ctx.lineTo(cx + 3, cy - size - 3);
+        ctx.stroke();
+
+        // Spark
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath();
+        ctx.arc(cx + 3, cy - size - 4, 2, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
   }
@@ -481,12 +653,14 @@ export class WreckingBallGame implements GameInstance {
   private drawBalls() {
     const { ctx } = this;
 
-    ctx.fillStyle = BALL_COLOR;
-    ctx.shadowColor = BALL_COLOR;
-    ctx.shadowBlur = 10;
-
     for (const ball of this.balls) {
       if (!ball.active) continue;
+
+      const color = ball.type === BallType.TripleShot ? TRIPLE_SHOT_COLOR : BALL_COLOR;
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10;
+
       ctx.beginPath();
       ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
       ctx.fill();
@@ -497,28 +671,46 @@ export class WreckingBallGame implements GameInstance {
 
   private drawAimLine() {
     if (!this.isAiming) return;
+    if (this.ballQueue.length === 0) return;
 
     const { ctx } = this;
     const angle = calculateLaunchAngle(this.aimStartX, this.aimStartY, this.aimEndX, this.aimEndY);
+    const nextBall = this.ballQueue[0];
+    const isTripleShot = nextBall.type === BallType.TripleShot;
 
-    // Draw dotted line in launch direction
-    const lineLength = 150;
-    const endX = this.launchX + Math.cos(angle) * lineLength;
-    const endY = this.launchY + Math.sin(angle) * lineLength;
+    // Calculate trajectory with bounces
+    const activeBricks = [...this.bricks.filter(b => b.hp > 0), ...this.shields.filter(s => s.hp > 0)];
+    const radius = isTripleShot ? MINI_BALL_RADIUS : BALL_RADIUS;
 
-    ctx.strokeStyle = 'rgba(248, 250, 252, 0.6)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([8, 8]);
-    ctx.beginPath();
-    ctx.moveTo(this.launchX, this.launchY);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if (isTripleShot) {
+      // Draw three trajectory lines for triple shot
+      const spreadAngle = Math.PI / 12;
+      const angles = [angle - spreadAngle, angle, angle + spreadAngle];
 
-    // Draw arrow head
+      for (const a of angles) {
+        const trajectory = calculateTrajectory(
+          this.launchX, this.launchY, a, BALL_SPEED, radius,
+          this.bounds, activeBricks, 2, 400
+        );
+        this.drawTrajectoryPath(trajectory, TRIPLE_SHOT_COLOR, 0.4);
+      }
+    } else {
+      // Draw single trajectory
+      const trajectory = calculateTrajectory(
+        this.launchX, this.launchY, angle, BALL_SPEED, radius,
+        this.bounds, activeBricks, 3, 600
+      );
+      this.drawTrajectoryPath(trajectory, BALL_COLOR, 0.6);
+    }
+
+    // Draw arrow head at initial direction
+    const arrowLength = 30;
+    const endX = this.launchX + Math.cos(angle) * arrowLength;
+    const endY = this.launchY + Math.sin(angle) * arrowLength;
     const arrowSize = 10;
     const arrowAngle = Math.PI / 6;
-    ctx.fillStyle = 'rgba(248, 250, 252, 0.6)';
+
+    ctx.fillStyle = isTripleShot ? `${TRIPLE_SHOT_COLOR}99` : 'rgba(248, 250, 252, 0.6)';
     ctx.beginPath();
     ctx.moveTo(endX, endY);
     ctx.lineTo(
@@ -533,8 +725,43 @@ export class WreckingBallGame implements GameInstance {
     ctx.fill();
   }
 
+  private drawTrajectoryPath(trajectory: { x: number; y: number; bounce: boolean }[], color: string, alpha: number) {
+    const { ctx } = this;
+
+    if (trajectory.length < 2) return;
+
+    // Draw the path as dotted line
+    ctx.strokeStyle = color.startsWith('#')
+      ? `${color}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`
+      : `rgba(248, 250, 252, ${alpha})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 6]);
+
+    ctx.beginPath();
+    ctx.moveTo(trajectory[0].x, trajectory[0].y);
+
+    for (let i = 1; i < trajectory.length; i++) {
+      ctx.lineTo(trajectory[i].x, trajectory[i].y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw bounce indicators
+    ctx.fillStyle = color;
+    for (const point of trajectory) {
+      if (point.bounce) {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
   private drawLauncher() {
     const { ctx } = this;
+    const nextBall = this.ballQueue[0];
+    const isTripleShot = nextBall?.type === BallType.TripleShot;
+    const ballColor = isTripleShot ? TRIPLE_SHOT_COLOR : BALL_COLOR;
 
     // Draw launch position indicator
     ctx.fillStyle = 'rgba(248, 250, 252, 0.3)';
@@ -542,32 +769,52 @@ export class WreckingBallGame implements GameInstance {
     ctx.arc(this.launchX, this.launchY, 15, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = 'rgba(248, 250, 252, 0.5)';
+    ctx.strokeStyle = isTripleShot ? `${TRIPLE_SHOT_COLOR}88` : 'rgba(248, 250, 252, 0.5)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(this.launchX, this.launchY, 15, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Inner dot
-    ctx.fillStyle = BALL_COLOR;
-    ctx.beginPath();
-    ctx.arc(this.launchX, this.launchY, 5, 0, Math.PI * 2);
-    ctx.fill();
+    // Inner indicator showing ball type
+    if (isTripleShot && nextBall) {
+      // Draw three small dots for triple shot
+      ctx.fillStyle = TRIPLE_SHOT_COLOR;
+      ctx.beginPath();
+      ctx.arc(this.launchX - 4, this.launchY - 2, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(this.launchX + 4, this.launchY - 2, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(this.launchX, this.launchY + 3, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Normal ball dot
+      ctx.fillStyle = ballColor;
+      ctx.beginPath();
+      ctx.arc(this.launchX, this.launchY, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   private createShields() {
     const rect = this.container.getBoundingClientRect();
-    const shieldWidth = 50;
-    const shieldHeight = 12;
-    const shieldY = this.launchY + 25; // Below the launcher
-    const gap = 20;
-
-    // Two shields, one on each side of center
+    const shieldWidth = 45;
+    const shieldHeight = 10;
+    const shieldY = this.launchY + 30; // Below the launcher
     const centerX = rect.width / 2;
+    const centerGap = 100; // Wide gap around launcher to avoid visual confusion
+
+    // 4 shields spread across the bottom, away from launcher
+    // Two on far left, two on far right, leaving center clear
+    const leftEdge = this.bounds.left;
+    const rightEdge = this.bounds.right;
+    const sideWidth = centerX - centerGap / 2 - leftEdge;
 
     this.shields = [
+      // Far left shield
       {
-        x: centerX - gap / 2 - shieldWidth,
+        x: leftEdge + sideWidth * 0.1,
         y: shieldY,
         width: shieldWidth,
         height: shieldHeight,
@@ -576,8 +823,31 @@ export class WreckingBallGame implements GameInstance {
         type: BrickType.Shield,
         color: SHIELD_COLOR,
       },
+      // Inner left shield
       {
-        x: centerX + gap / 2,
+        x: leftEdge + sideWidth * 0.6,
+        y: shieldY,
+        width: shieldWidth,
+        height: shieldHeight,
+        hp: 1,
+        maxHp: 1,
+        type: BrickType.Shield,
+        color: SHIELD_COLOR,
+      },
+      // Inner right shield
+      {
+        x: centerX + centerGap / 2 + sideWidth * 0.2,
+        y: shieldY,
+        width: shieldWidth,
+        height: shieldHeight,
+        hp: 1,
+        maxHp: 1,
+        type: BrickType.Shield,
+        color: SHIELD_COLOR,
+      },
+      // Far right shield
+      {
+        x: rightEdge - shieldWidth - sideWidth * 0.1,
         y: shieldY,
         width: shieldWidth,
         height: shieldHeight,
@@ -596,13 +866,15 @@ export class WreckingBallGame implements GameInstance {
     this.balls = [];
     this.particles = [];
     this.floatingTexts = [];
+    this.pendingExplosions = [];
 
     const levelData = generateLevel(this.level, this.levelConfig);
     this.bricks = levelData.bricks;
-    this.ballsRemaining = levelData.ballCount;
+    this.ballQueue = levelData.ballQueue;
     this.createShields();
 
     this.api.setScore(0);
+    this.api.sounds.gameStart();
     this.render();
   }
 
