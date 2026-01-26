@@ -61,8 +61,8 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
   // Indestructible: 5% base chance from level 1, slowly increases
   const indestructibleChance = Math.min(0.05 + (levelNum - 1) * 0.015, 0.12);
 
-  // Bomb bricks: 10% base chance from level 1, increases to add excitement
-  const bombChance = Math.min(0.10 + (levelNum - 1) * 0.02, 0.18);
+  // Bomb bricks: 5% base chance, increases slowly - keeps them special
+  const bombChance = Math.min(0.05 + (levelNum - 1) * 0.01, 0.10);
 
   // Strong brick HP: starts at 2, increases every 4 levels
   const maxStrongHp = Math.min(2 + Math.floor(levelNum / 4), 4);
