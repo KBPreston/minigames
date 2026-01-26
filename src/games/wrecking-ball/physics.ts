@@ -1,4 +1,4 @@
-import { Ball, Brick, BrickType, BallType, Vec2, MINI_BALL_RADIUS } from './types';
+import { Ball, Brick, BrickType, BallType, Vec2, MINI_BALL_RADIUS, BALL_SPEED } from './types';
 
 export interface Bounds {
   left: number;
@@ -6,6 +6,10 @@ export interface Bounds {
   top: number;
   bottom: number;
 }
+
+// Ball accelerates slightly on each bounce, capped at max speed
+const BOUNCE_ACCELERATION = 1.03; // 3% faster per bounce
+const MAX_SPEED = BALL_SPEED * 2.5; // Cap at 2.5x starting speed
 
 export interface CollisionResult {
   hit: boolean;
@@ -30,6 +34,17 @@ function addJitter(velocity: Vec2, amount: number = 0.05): Vec2 {
   return {
     x: velocity.x * cos - velocity.y * sin,
     y: velocity.x * sin + velocity.y * cos,
+  };
+}
+
+// Accelerate ball on bounce, capped at max speed
+function accelerate(velocity: Vec2): Vec2 {
+  const currentSpeed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+  const newSpeed = Math.min(currentSpeed * BOUNCE_ACCELERATION, MAX_SPEED);
+  const scale = newSpeed / currentSpeed;
+  return {
+    x: velocity.x * scale,
+    y: velocity.y * scale,
   };
 }
 
@@ -83,25 +98,25 @@ export function updateBall(
 
   let destroyed: Brick | null = null;
 
-  // Wall collisions
+  // Wall collisions - accelerate on each bounce
   if (ball.x - ball.radius < bounds.left) {
     ball.x = bounds.left + ball.radius;
     ball.vx = Math.abs(ball.vx);
-    const vel = addJitter({ x: ball.vx, y: ball.vy });
+    const vel = accelerate(addJitter({ x: ball.vx, y: ball.vy }));
     ball.vx = vel.x;
     ball.vy = vel.y;
   }
   if (ball.x + ball.radius > bounds.right) {
     ball.x = bounds.right - ball.radius;
     ball.vx = -Math.abs(ball.vx);
-    const vel = addJitter({ x: ball.vx, y: ball.vy });
+    const vel = accelerate(addJitter({ x: ball.vx, y: ball.vy }));
     ball.vx = vel.x;
     ball.vy = vel.y;
   }
   if (ball.y - ball.radius < bounds.top) {
     ball.y = bounds.top + ball.radius;
     ball.vy = Math.abs(ball.vy);
-    const vel = addJitter({ x: ball.vx, y: ball.vy });
+    const vel = accelerate(addJitter({ x: ball.vx, y: ball.vy }));
     ball.vx = vel.x;
     ball.vy = vel.y;
   }
@@ -112,15 +127,15 @@ export function updateBall(
     return { destroyed: null, exited: true };
   }
 
-  // Brick collisions
+  // Brick collisions - accelerate on each bounce
   for (const brick of bricks) {
     const result = checkBrickCollision(ball, brick);
     if (result.hit && result.normal) {
-      // Reflect velocity
+      // Reflect velocity and accelerate
       const reflected = reflect({ x: ball.vx, y: ball.vy }, result.normal);
-      const jittered = addJitter(reflected);
-      ball.vx = jittered.x;
-      ball.vy = jittered.y;
+      const accelerated = accelerate(addJitter(reflected));
+      ball.vx = accelerated.x;
+      ball.vy = accelerated.y;
 
       // Push ball out of brick
       ball.x += result.normal.x * (ball.radius + 1);
