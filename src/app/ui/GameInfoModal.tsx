@@ -1,0 +1,100 @@
+interface GameInfoModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  gameId: string;
+}
+
+const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
+  'bloom-burst': {
+    title: 'Bloom Burst',
+    rules: [
+      'Drag pieces onto the 8x8 grid to place them',
+      'Fill a 3x3 square to trigger a bloom burst',
+      'Bursts clear the 3x3 and spread to all connected tiles',
+      'Bigger bursts = bigger points! Chain for combos',
+      'Game ends when no piece fits on the board',
+    ],
+  },
+  'block-blast': {
+    title: 'Block Blast',
+    rules: [
+      'Drag pieces onto the 8x8 grid to place them',
+      'Fill a complete row or column to clear it',
+      'Clear multiple lines at once for bonus points',
+      'Keep clearing to build combo multipliers',
+      'Game ends when no piece fits on the board',
+    ],
+  },
+  'snap-merge': {
+    title: 'Snap Merge',
+    rules: [
+      'Tap any block to drop it down',
+      'When matching numbers collide, they merge and double',
+      'Build up to higher numbers for more points',
+      'A new block spawns at the top after each move',
+      'Game ends when blocks reach the danger zone',
+    ],
+  },
+  'color-flood': {
+    title: 'Color Flood',
+    rules: [
+      'Tap a color to flood from the top-left corner',
+      'All connected tiles change to your chosen color',
+      'Groups of exactly 6 same-colored tiles pop for +100',
+      'Fill the entire board with one color to win the round',
+      'Round bonus: +500 plus +20 per move remaining',
+      'You have 25 moves per round - plan ahead!',
+    ],
+  },
+};
+
+export function GameInfoModal({ isOpen, onClose, gameId }: GameInfoModalProps) {
+  if (!isOpen) return null;
+
+  const info = GAME_RULES[gameId] || { title: 'Game Rules', rules: ['No rules available'] };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="relative bg-gray-800 rounded-2xl p-6 max-w-sm w-full animate-pop-in">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">{info.title}</h2>
+          <button
+            onClick={onClose}
+            className="p-2 -m-2 text-gray-400 hover:text-white"
+            aria-label="Close"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">How to Play</h3>
+          <ul className="space-y-2">
+            {info.rules.map((rule, i) => (
+              <li key={i} className="flex gap-3 text-sm text-gray-200">
+                <span className="text-primary-400 font-bold">{i + 1}.</span>
+                <span>{rule}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full mt-6 py-3 bg-primary-600 hover:bg-primary-500 text-white font-semibold rounded-xl transition-colors"
+        >
+          Got it!
+        </button>
+      </div>
+    </div>
+  );
+}
