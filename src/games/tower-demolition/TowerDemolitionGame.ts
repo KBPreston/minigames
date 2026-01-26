@@ -22,14 +22,16 @@ import {
   hasActiveEffects,
 } from '../../core/effects';
 
-// Game states for clearer flow control
 enum GameState {
-  Ready,           // Waiting for player input
-  Exploding,       // Explosion animation playing
-  Settling,        // Physics settling after explosion
-  LevelComplete,   // Showing level complete, transitioning
-  GameOver,        // Game ended
+  Ready,
+  Aiming,        // Player is holding down, showing preview
+  Exploding,
+  Settling,
+  LevelComplete,
+  GameOver,
 }
+
+const GROUND_IMPACT_VELOCITY = 200; // Velocity needed to destroy block on ground impact
 
 export class TowerDemolitionGame implements GameInstance {
   private api: GameAPI;
@@ -53,18 +55,19 @@ export class TowerDemolitionGame implements GameInstance {
   private lastTime: number = 0;
   private animationFrameId: number = 0;
 
-  // Settling timeout to prevent infinite waiting
-  private settleStartTime: number = 0;
-  private readonly MAX_SETTLE_TIME = 5000; // 5 seconds max settling
+  // Aiming state
+  private aimX: number = 0;
+  private aimY: number = 0;
+  private isValidAim: boolean = false;
 
-  // Track blocks destroyed by physics (falling)
+  // Settling and combo tracking
+  private settleStartTime: number = 0;
+  private readonly MAX_SETTLE_TIME = 5000;
   private blocksDestroyedThisTurn: number = 0;
-  private previousActiveCount: number = 0;
+  private currentCombo: number = 0;
 
   private particles: Particle[] = [];
   private floatingTexts: FloatingText[] = [];
-  private lastTouchTime: number = 0;
-  private lastPlacementTime: number = 0; // Debounce for placement
 
   constructor(container: HTMLElement, api: GameAPI) {
     this.container = container;
@@ -105,46 +108,88 @@ export class TowerDemolitionGame implements GameInstance {
   };
 
   private setupEventListeners() {
-    this.container.addEventListener('touchstart', this.handleTouch, { passive: false });
-    this.container.addEventListener('click', this.handleClick);
+    this.container.addEventListener('touchstart', this.handleTouchStart, { passive: false });
+    this.container.addEventListener('touchmove', this.handleTouchMove, { passive: false });
+    this.container.addEventListener('touchend', this.handleTouchEnd, { passive: false });
+    this.container.addEventListener('touchcancel', this.handleTouchEnd, { passive: false });
+    this.container.addEventListener('mousedown', this.handleMouseDown);
+    this.container.addEventListener('mousemove', this.handleMouseMove);
+    this.container.addEventListener('mouseup', this.handleMouseUp);
+    this.container.addEventListener('mouseleave', this.handleMouseUp);
   }
 
   private removeEventListeners() {
-    this.container.removeEventListener('touchstart', this.handleTouch);
-    this.container.removeEventListener('click', this.handleClick);
+    this.container.removeEventListener('touchstart', this.handleTouchStart);
+    this.container.removeEventListener('touchmove', this.handleTouchMove);
+    this.container.removeEventListener('touchend', this.handleTouchEnd);
+    this.container.removeEventListener('touchcancel', this.handleTouchEnd);
+    this.container.removeEventListener('mousedown', this.handleMouseDown);
+    this.container.removeEventListener('mousemove', this.handleMouseMove);
+    this.container.removeEventListener('mouseup', this.handleMouseUp);
+    this.container.removeEventListener('mouseleave', this.handleMouseUp);
   }
 
-  private handleTouch = (e: TouchEvent) => {
-    if (this.isPaused || this.gameState !== GameState.Ready) return;
-    e.preventDefault();
-    this.lastTouchTime = Date.now();
-    const touch = e.touches[0];
+  private getPosition(clientX: number, clientY: number): { x: number; y: number } {
     const rect = this.container.getBoundingClientRect();
-    this.placeDynamite(touch.clientX - rect.left, touch.clientY - rect.top);
-  };
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
 
-  private handleClick = (e: MouseEvent) => {
-    if (this.isPaused || this.gameState !== GameState.Ready) return;
-    if (Date.now() - this.lastTouchTime < 500) return;
-    const rect = this.container.getBoundingClientRect();
-    this.placeDynamite(e.clientX - rect.left, e.clientY - rect.top);
-  };
-
-  private placeDynamite(x: number, y: number) {
-    // Debounce - prevent multiple placements within 500ms
-    const now = Date.now();
-    if (now - this.lastPlacementTime < 500) return;
-
-    // Double-check state (belt and suspenders)
+  private handleTouchStart = (e: TouchEvent) => {
+    if (this.isPaused) return;
     if (this.gameState !== GameState.Ready) return;
+    if (this.dynamiteRemaining <= 0) return;
+    e.preventDefault();
 
-    if (this.dynamiteRemaining <= 0) {
-      this.floatingTexts.push(createFloatingText(x, y, 'No dynamite left!', '#f87171', 16));
-      this.api.sounds.invalid();
-      return;
-    }
+    const pos = this.getPosition(e.touches[0].clientX, e.touches[0].clientY);
+    this.startAiming(pos.x, pos.y);
+  };
 
-    // Check if clicking near a block or on ground near tower
+  private handleTouchMove = (e: TouchEvent) => {
+    if (this.gameState !== GameState.Aiming) return;
+    e.preventDefault();
+
+    const pos = this.getPosition(e.touches[0].clientX, e.touches[0].clientY);
+    this.updateAiming(pos.x, pos.y);
+  };
+
+  private handleTouchEnd = (e: TouchEvent) => {
+    if (this.gameState !== GameState.Aiming) return;
+    e.preventDefault();
+    this.finishAiming();
+  };
+
+  private handleMouseDown = (e: MouseEvent) => {
+    if (this.isPaused) return;
+    if (this.gameState !== GameState.Ready) return;
+    if (this.dynamiteRemaining <= 0) return;
+
+    const pos = this.getPosition(e.clientX, e.clientY);
+    this.startAiming(pos.x, pos.y);
+  };
+
+  private handleMouseMove = (e: MouseEvent) => {
+    if (this.gameState !== GameState.Aiming) return;
+
+    const pos = this.getPosition(e.clientX, e.clientY);
+    this.updateAiming(pos.x, pos.y);
+  };
+
+  private handleMouseUp = () => {
+    if (this.gameState !== GameState.Aiming) return;
+    this.finishAiming();
+  };
+
+  private startAiming(x: number, y: number) {
+    this.gameState = GameState.Aiming;
+    this.updateAiming(x, y);
+    this.api.sounds.select();
+  }
+
+  private updateAiming(x: number, y: number) {
+    this.aimX = x;
+    this.aimY = y;
+
+    // Check if this is a valid placement
     const nearBlock = this.blocks.some(block => {
       if (block.destroyed) return false;
       const dx = x - (block.x + block.width / 2);
@@ -152,23 +197,32 @@ export class TowerDemolitionGame implements GameInstance {
       return Math.sqrt(dx * dx + dy * dy) < EXPLOSION_RADIUS * 2;
     });
 
-    // Also allow clicking on ground near tower base
     const nearGround = y > this.world.groundY - 50;
     const nearTowerX = Math.abs(x - this.centerX) < 150;
 
-    if (!nearBlock && !(nearGround && nearTowerX)) {
-      this.floatingTexts.push(createFloatingText(x, y, 'Click near tower!', '#f87171', 14));
+    this.isValidAim = nearBlock || (nearGround && nearTowerX);
+    this.render();
+  }
+
+  private finishAiming() {
+    if (!this.isValidAim) {
+      // Invalid placement - cancel
+      this.floatingTexts.push(createFloatingText(this.aimX, this.aimY, 'Place near tower!', '#f87171', 14));
       this.api.sounds.invalid();
-      this.startGameLoop(); // Start loop to show the message
+      this.gameState = GameState.Ready;
+      this.startGameLoop();
       return;
     }
 
-    // Immediately lock state to prevent duplicate calls
-    this.lastPlacementTime = now;
+    // Place dynamite!
+    this.placeDynamite(this.aimX, this.aimY);
+  }
+
+  private placeDynamite(x: number, y: number) {
     this.gameState = GameState.Exploding;
     this.dynamiteRemaining--;
     this.blocksDestroyedThisTurn = 0;
-    this.previousActiveCount = getActiveBlockCount(this.blocks);
+    this.currentCombo = 0;
 
     // Create explosion
     const explosion: Explosion = {
@@ -183,46 +237,56 @@ export class TowerDemolitionGame implements GameInstance {
 
     // Apply explosion physics
     const destroyed = applyExplosion(this.blocks, x, y, EXPLOSION_RADIUS, EXPLOSION_FORCE);
-    this.blocksDestroyedThisTurn = destroyed.length;
 
-    // Score based on blocks destroyed
     if (destroyed.length > 0) {
-      const multiplier = 1 + (destroyed.length - 1) * 0.5;
-      const points = Math.floor(destroyed.length * 50 * multiplier * this.level);
-      this.score += points;
-      this.api.setScore(this.score);
-
-      for (const block of destroyed) {
-        const cx = block.x + block.width / 2;
-        const cy = block.y + block.height / 2;
-        const color = BLOCK_PROPERTIES[block.type].color;
-        this.particles.push(...generateParticlesAt(cx, cy, color, 10));
-      }
-
-      if (destroyed.length >= 5) {
-        this.floatingTexts.push(createFloatingText(x, y - 30, `MASSIVE! ${destroyed.length} blocks!`, '#f97316', 24));
-        this.api.sounds.combo(destroyed.length);
-        this.api.haptics.success();
-      } else if (destroyed.length >= 3) {
-        this.floatingTexts.push(createFloatingText(x, y - 20, `GREAT! ${destroyed.length}x`, '#eab308', 20));
-        this.api.sounds.clearMulti(destroyed.length);
-        this.api.haptics.success();
-      } else {
-        this.floatingTexts.push(createFloatingText(x, y, `+${points}`, '#fbbf24', 16));
-        this.api.sounds.burst();
-        this.api.haptics.tap();
-      }
-    } else {
-      this.floatingTexts.push(createFloatingText(x, y, 'Miss!', '#f87171', 14));
-      this.api.sounds.burst();
-      this.api.haptics.tap();
+      this.awardPoints(destroyed.length, x, y, true);
     }
 
     // Explosion particles
-    this.particles.push(...generateParticlesAt(x, y, '#f97316', 20));
-    this.particles.push(...generateParticlesAt(x, y, '#fbbf24', 15));
+    this.particles.push(...generateParticlesAt(x, y, '#f97316', 25));
+    this.particles.push(...generateParticlesAt(x, y, '#fbbf24', 20));
+    this.particles.push(...generateParticlesAt(x, y, '#ffffff', 10));
 
+    this.api.sounds.burst();
+    this.api.haptics.success();
     this.startGameLoop();
+  }
+
+  private awardPoints(blocksDestroyed: number, x: number, y: number, isExplosion: boolean) {
+    this.blocksDestroyedThisTurn += blocksDestroyed;
+    this.currentCombo += blocksDestroyed;
+
+    // Calculate multiplier based on combo
+    const multiplier = 1 + (this.currentCombo - 1) * 0.25;
+    const basePoints = isExplosion ? 50 : 25; // Less for physics kills
+    const points = Math.floor(blocksDestroyed * basePoints * multiplier * this.level);
+
+    this.score += points;
+    this.api.setScore(this.score);
+
+    // Visual feedback
+    const color = this.currentCombo >= 10 ? '#f97316' :
+                  this.currentCombo >= 5 ? '#eab308' : '#fbbf24';
+    const size = Math.min(14 + this.currentCombo, 28);
+
+    if (this.currentCombo >= 5) {
+      this.floatingTexts.push(createFloatingText(x, y - 20, `${this.currentCombo}x COMBO!`, color, size));
+      this.floatingTexts.push(createFloatingText(x, y + 5, `+${points}`, '#fbbf24', 16));
+      this.api.sounds.combo(this.currentCombo);
+    } else if (this.currentCombo >= 3) {
+      this.floatingTexts.push(createFloatingText(x, y - 10, `${this.currentCombo}x`, color, size));
+      this.floatingTexts.push(createFloatingText(x, y + 10, `+${points}`, '#fbbf24', 14));
+      this.api.sounds.clearMulti(blocksDestroyed);
+    } else {
+      this.floatingTexts.push(createFloatingText(x, y, `+${points}`, '#fbbf24', 14));
+      if (blocksDestroyed > 1) {
+        this.api.sounds.clearMulti(blocksDestroyed);
+      } else {
+        this.api.sounds.clearSingle();
+      }
+    }
+
+    this.api.haptics.tap();
   }
 
   private startGameLoop() {
@@ -240,8 +304,8 @@ export class TowerDemolitionGame implements GameInstance {
     const dt = Math.min((time - this.lastTime) / 1000, 0.05);
     this.lastTime = time;
 
-    // Update physics
-    updatePhysics(this.blocks, dt, this.world);
+    // Update physics and check for ground impacts
+    this.updatePhysicsWithGroundDestruction(dt);
 
     // Update explosions
     let explosionsActive = false;
@@ -259,24 +323,6 @@ export class TowerDemolitionGame implements GameInstance {
     if (this.gameState === GameState.Exploding && !explosionsActive) {
       this.gameState = GameState.Settling;
       this.settleStartTime = time;
-    }
-
-    // Check for blocks destroyed by falling (physics)
-    if (this.gameState === GameState.Settling) {
-      const currentActive = getActiveBlockCount(this.blocks);
-      const newlyDestroyed = this.previousActiveCount - currentActive;
-
-      if (newlyDestroyed > 0) {
-        // Blocks fell off or were destroyed by physics
-        const bonusPoints = newlyDestroyed * 25 * this.level;
-        this.score += bonusPoints;
-        this.api.setScore(this.score);
-        this.blocksDestroyedThisTurn += newlyDestroyed;
-        this.previousActiveCount = currentActive;
-
-        // Reset settle timer when things are still falling
-        this.settleStartTime = time;
-      }
     }
 
     // Check settling completion
@@ -299,6 +345,7 @@ export class TowerDemolitionGame implements GameInstance {
     const needsLoop =
       this.gameState === GameState.Exploding ||
       this.gameState === GameState.Settling ||
+      this.gameState === GameState.Aiming ||
       hasActiveEffects(this.particles, this.floatingTexts);
 
     if (needsLoop) {
@@ -308,27 +355,63 @@ export class TowerDemolitionGame implements GameInstance {
     }
   };
 
+  private updatePhysicsWithGroundDestruction(dt: number) {
+    // Track blocks about to hit ground
+    const activeBlocks = this.blocks.filter(b => !b.destroyed);
+
+    for (const block of activeBlocks) {
+      const wasAboveGround = block.y + block.height < this.world.groundY - 5;
+      const hadHighVelocity = Math.abs(block.vy) > GROUND_IMPACT_VELOCITY;
+
+      // Update physics
+      updatePhysics([block], dt, this.world);
+
+      // Check if block just hit ground with enough force
+      const nowAtGround = block.y + block.height >= this.world.groundY - 5;
+
+      if (wasAboveGround && nowAtGround && hadHighVelocity && !block.destroyed) {
+        // Destroy block on impact!
+        block.destroyed = true;
+
+        const cx = block.x + block.width / 2;
+        const cy = block.y + block.height / 2;
+        const color = BLOCK_PROPERTIES[block.type].color;
+
+        // Impact particles
+        this.particles.push(...generateParticlesAt(cx, cy, color, 8));
+        this.particles.push(...generateParticlesAt(cx, this.world.groundY, '#6b7280', 5));
+
+        // Award points with real-time combo
+        this.awardPoints(1, cx, cy, false);
+      }
+    }
+
+    // Also update any remaining blocks (for collision resolution)
+    updatePhysics(this.blocks, dt, this.world);
+  }
+
   private checkSettled(): boolean {
     const activeBlocks = this.blocks.filter(b => !b.destroyed);
     if (activeBlocks.length === 0) return true;
 
-    // Check if all blocks have low velocity
-    const allSlow = activeBlocks.every(b =>
-      Math.abs(b.vx) < 5 && Math.abs(b.vy) < 5
-    );
-
-    return allSlow;
+    return activeBlocks.every(b => Math.abs(b.vx) < 10 && Math.abs(b.vy) < 10);
   }
 
   private onSettleComplete() {
-    // Show combo summary if we destroyed many blocks this turn
-    if (this.blocksDestroyedThisTurn >= 5) {
+    // Final combo summary
+    if (this.blocksDestroyedThisTurn >= 8) {
       const rect = this.container.getBoundingClientRect();
       this.floatingTexts.push(
         createFloatingText(rect.width / 2, rect.height / 2,
-          `${this.blocksDestroyedThisTurn} BLOCKS DESTROYED!`, '#f97316', 22)
+          `DEMOLITION! ${this.blocksDestroyedThisTurn} blocks!`, '#f97316', 26)
       );
-      this.api.sounds.combo(this.blocksDestroyedThisTurn);
+      this.api.sounds.newHighScore();
+    } else if (this.blocksDestroyedThisTurn >= 5) {
+      const rect = this.container.getBoundingClientRect();
+      this.floatingTexts.push(
+        createFloatingText(rect.width / 2, rect.height / 2,
+          `${this.blocksDestroyedThisTurn} BLOCKS!`, '#eab308', 22)
+      );
     }
 
     // Check win/lose conditions
@@ -337,7 +420,6 @@ export class TowerDemolitionGame implements GameInstance {
     } else if (this.dynamiteRemaining <= 0) {
       this.triggerGameOver();
     } else {
-      // Ready for next dynamite
       this.gameState = GameState.Ready;
     }
   }
@@ -346,12 +428,9 @@ export class TowerDemolitionGame implements GameInstance {
     this.gameState = GameState.LevelComplete;
     this.level++;
 
-    // Bonus for remaining dynamite
     const dynamiteBonus = this.dynamiteRemaining * 100 * this.level;
-
     const rect = this.container.getBoundingClientRect();
 
-    // Show level complete
     this.floatingTexts.push(
       createFloatingText(rect.width / 2, rect.height / 2 - 20, `Level ${this.level}!`, '#22c55e', 32)
     );
@@ -360,14 +439,13 @@ export class TowerDemolitionGame implements GameInstance {
       this.score += dynamiteBonus;
       this.api.setScore(this.score);
       this.floatingTexts.push(
-        createFloatingText(rect.width / 2, rect.height / 2 + 20, `+${dynamiteBonus} dynamite bonus!`, '#fbbf24', 18)
+        createFloatingText(rect.width / 2, rect.height / 2 + 20, `+${dynamiteBonus} bonus!`, '#fbbf24', 18)
       );
     }
 
     this.api.haptics.success();
     this.api.sounds.roundComplete();
 
-    // Delay before starting next level
     setTimeout(() => {
       if (this.isDestroyed) return;
 
@@ -414,6 +492,7 @@ export class TowerDemolitionGame implements GameInstance {
     this.drawGround();
     this.drawBlocks();
     this.drawExplosions();
+    this.drawAimPreview();
     this.drawHUD();
 
     const reduceMotion = this.api.getSettings().reduceMotion;
@@ -502,6 +581,52 @@ export class TowerDemolitionGame implements GameInstance {
     }
   }
 
+  private drawAimPreview() {
+    if (this.gameState !== GameState.Aiming) return;
+
+    const { ctx } = this;
+
+    // Draw explosion radius preview
+    if (this.isValidAim) {
+      // Valid - show green/yellow
+      ctx.strokeStyle = 'rgba(34, 197, 94, 0.6)';
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.1)';
+    } else {
+      // Invalid - show red
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.1)';
+    }
+
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 4]);
+    ctx.beginPath();
+    ctx.arc(this.aimX, this.aimY, EXPLOSION_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw dynamite icon at center
+    if (this.isValidAim) {
+      // Red stick
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(this.aimX - 5, this.aimY - 15, 10, 25);
+
+      // Fuse
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(this.aimX, this.aimY - 15);
+      ctx.quadraticCurveTo(this.aimX + 8, this.aimY - 22, this.aimX + 5, this.aimY - 28);
+      ctx.stroke();
+
+      // Spark
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.arc(this.aimX + 5, this.aimY - 30, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   private drawHUD() {
     const { ctx } = this;
     const rect = this.container.getBoundingClientRect();
@@ -565,7 +690,6 @@ export class TowerDemolitionGame implements GameInstance {
     ctx.fillStyle = progressColor;
     ctx.fillRect(barX, barY, barWidth * progress, barHeight);
 
-    // Target line
     ctx.strokeStyle = '#22c55e';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -578,7 +702,12 @@ export class TowerDemolitionGame implements GameInstance {
       ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
       ctx.font = '12px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Tap to place dynamite', rect.width / 2, 50);
+      ctx.fillText('Hold & drag to aim, release to detonate', rect.width / 2, 50);
+    } else if (this.gameState === GameState.Aiming) {
+      ctx.fillStyle = this.isValidAim ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)';
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(this.isValidAim ? 'Release to detonate!' : 'Move closer to tower', rect.width / 2, 50);
     } else if (this.gameState === GameState.Settling) {
       ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
       ctx.font = '12px system-ui, sans-serif';
@@ -595,6 +724,8 @@ export class TowerDemolitionGame implements GameInstance {
     this.explosions = [];
     this.particles = [];
     this.floatingTexts = [];
+    this.currentCombo = 0;
+    this.blocksDestroyedThisTurn = 0;
 
     const tower = generateTower(this.level, this.world.groundY, this.centerX);
     this.blocks = tower.blocks;
