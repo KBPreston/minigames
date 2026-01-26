@@ -47,6 +47,7 @@ export class TowerDemolitionGame implements GameInstance {
 
   private particles: Particle[] = [];
   private floatingTexts: FloatingText[] = [];
+  private lastTouchTime: number = 0; // Prevent duplicate touch/click events
 
   constructor(container: HTMLElement, api: GameAPI) {
     this.container = container;
@@ -99,6 +100,7 @@ export class TowerDemolitionGame implements GameInstance {
   private handleTouch = (e: TouchEvent) => {
     if (this.isPaused || this.isGameOver) return;
     e.preventDefault();
+    this.lastTouchTime = Date.now();
     const touch = e.touches[0];
     const rect = this.container.getBoundingClientRect();
     this.placeDynamite(touch.clientX - rect.left, touch.clientY - rect.top);
@@ -106,6 +108,8 @@ export class TowerDemolitionGame implements GameInstance {
 
   private handleClick = (e: MouseEvent) => {
     if (this.isPaused || this.isGameOver) return;
+    // Ignore click if it's a ghost click from touch (within 500ms)
+    if (Date.now() - this.lastTouchTime < 500) return;
     const rect = this.container.getBoundingClientRect();
     this.placeDynamite(e.clientX - rect.left, e.clientY - rect.top);
   };
