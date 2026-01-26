@@ -25,8 +25,10 @@ const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(() => {
-    const saved = Storage.get<Settings | null>(SETTINGS_KEY, null);
-    return saved ?? getDefaultSettings();
+    const defaults = getDefaultSettings();
+    const saved = Storage.get<Partial<Settings> | null>(SETTINGS_KEY, null);
+    // Merge saved settings with defaults to handle new properties
+    return saved ? { ...defaults, ...saved } : defaults;
   });
 
   useEffect(() => {
