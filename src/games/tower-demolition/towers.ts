@@ -240,6 +240,6 @@ export function getActiveBlockCount(blocks: Block[]): number {
 // Check if tower is considered "cleared"
 export function isTowerCleared(blocks: Block[], initialCount: number): boolean {
   const remaining = getActiveBlockCount(blocks);
-  // Tower is cleared if 80% of blocks are destroyed
-  return remaining <= initialCount * 0.2;
+  // Tower is cleared if 70% of blocks are destroyed
+  return remaining <= initialCount * 0.3;
 }

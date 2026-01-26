@@ -8,7 +8,7 @@ import {
   EXPLOSION_FORCE,
   EXPLOSION_DURATION,
 } from './types';
-import { updatePhysics, applyExplosion, allBlocksSettled, PhysicsWorld } from './physics';
+import { updatePhysics, applyExplosion, PhysicsWorld } from './physics';
 import { generateTower, getActiveBlockCount, isTowerCleared } from './towers';
 import {
   Particle,
@@ -21,6 +21,15 @@ import {
   filterActiveFloatingTexts,
   hasActiveEffects,
 } from '../../core/effects';
+
+// Game states for clearer flow control
+enum GameState {
+  Ready,           // Waiting for player input
+  Exploding,       // Explosion animation playing
+  Settling,        // Physics settling after explosion
+  LevelComplete,   // Showing level complete, transitioning
+  GameOver,        // Game ended
+}
 
 export class TowerDemolitionGame implements GameInstance {
   private api: GameAPI;
@@ -38,16 +47,23 @@ export class TowerDemolitionGame implements GameInstance {
   private world: PhysicsWorld = { groundY: 0, leftWall: 0, rightWall: 0 };
   private centerX: number = 0;
 
+  private gameState: GameState = GameState.Ready;
   private isPaused: boolean = false;
   private isDestroyed: boolean = false;
-  private isGameOver: boolean = false;
-  private waitingForSettle: boolean = false;
   private lastTime: number = 0;
   private animationFrameId: number = 0;
 
+  // Settling timeout to prevent infinite waiting
+  private settleStartTime: number = 0;
+  private readonly MAX_SETTLE_TIME = 5000; // 5 seconds max settling
+
+  // Track blocks destroyed by physics (falling)
+  private blocksDestroyedThisTurn: number = 0;
+  private previousActiveCount: number = 0;
+
   private particles: Particle[] = [];
   private floatingTexts: FloatingText[] = [];
-  private lastTouchTime: number = 0; // Prevent duplicate touch/click events
+  private lastTouchTime: number = 0;
 
   constructor(container: HTMLElement, api: GameAPI) {
     this.container = container;
@@ -98,7 +114,7 @@ export class TowerDemolitionGame implements GameInstance {
   }
 
   private handleTouch = (e: TouchEvent) => {
-    if (this.isPaused || this.isGameOver) return;
+    if (this.isPaused || this.gameState !== GameState.Ready) return;
     e.preventDefault();
     this.lastTouchTime = Date.now();
     const touch = e.touches[0];
@@ -107,34 +123,42 @@ export class TowerDemolitionGame implements GameInstance {
   };
 
   private handleClick = (e: MouseEvent) => {
-    if (this.isPaused || this.isGameOver) return;
-    // Ignore click if it's a ghost click from touch (within 500ms)
+    if (this.isPaused || this.gameState !== GameState.Ready) return;
     if (Date.now() - this.lastTouchTime < 500) return;
     const rect = this.container.getBoundingClientRect();
     this.placeDynamite(e.clientX - rect.left, e.clientY - rect.top);
   };
 
   private placeDynamite(x: number, y: number) {
-    if (this.dynamiteRemaining <= 0) return;
-    if (this.waitingForSettle) return;
-
-    // Check if clicking near a block
-    const nearBlock = this.blocks.some(block => {
-      if (block.destroyed) return false;
-      const dx = x - (block.x + block.width / 2);
-      const dy = y - (block.y + block.height / 2);
-      return Math.sqrt(dx * dx + dy * dy) < EXPLOSION_RADIUS * 1.5;
-    });
-
-    if (!nearBlock && y < this.world.groundY - 20) {
-      // Show hint that they need to click near blocks
-      this.floatingTexts.push(createFloatingText(x, y, 'Click near tower!', '#f87171', 14));
+    if (this.dynamiteRemaining <= 0) {
+      this.floatingTexts.push(createFloatingText(x, y, 'No dynamite left!', '#f87171', 16));
       this.api.sounds.invalid();
       return;
     }
 
+    // Check if clicking near a block or on ground near tower
+    const nearBlock = this.blocks.some(block => {
+      if (block.destroyed) return false;
+      const dx = x - (block.x + block.width / 2);
+      const dy = y - (block.y + block.height / 2);
+      return Math.sqrt(dx * dx + dy * dy) < EXPLOSION_RADIUS * 2;
+    });
+
+    // Also allow clicking on ground near tower base
+    const nearGround = y > this.world.groundY - 50;
+    const nearTowerX = Math.abs(x - this.centerX) < 150;
+
+    if (!nearBlock && !(nearGround && nearTowerX)) {
+      this.floatingTexts.push(createFloatingText(x, y, 'Click near tower!', '#f87171', 14));
+      this.api.sounds.invalid();
+      this.startGameLoop(); // Start loop to show the message
+      return;
+    }
+
     this.dynamiteRemaining--;
-    this.waitingForSettle = true;
+    this.gameState = GameState.Exploding;
+    this.blocksDestroyedThisTurn = 0;
+    this.previousActiveCount = getActiveBlockCount(this.blocks);
 
     // Create explosion
     const explosion: Explosion = {
@@ -149,16 +173,15 @@ export class TowerDemolitionGame implements GameInstance {
 
     // Apply explosion physics
     const destroyed = applyExplosion(this.blocks, x, y, EXPLOSION_RADIUS, EXPLOSION_FORCE);
+    this.blocksDestroyedThisTurn = destroyed.length;
 
     // Score based on blocks destroyed
     if (destroyed.length > 0) {
-      // Base points + multiplier for multiple blocks
-      const multiplier = Math.max(1, destroyed.length * 0.5);
+      const multiplier = 1 + (destroyed.length - 1) * 0.5;
       const points = Math.floor(destroyed.length * 50 * multiplier * this.level);
       this.score += points;
       this.api.setScore(this.score);
 
-      // Create effects for each destroyed block
       for (const block of destroyed) {
         const cx = block.x + block.width / 2;
         const cy = block.y + block.height / 2;
@@ -166,7 +189,6 @@ export class TowerDemolitionGame implements GameInstance {
         this.particles.push(...generateParticlesAt(cx, cy, color, 10));
       }
 
-      // Show combo message
       if (destroyed.length >= 5) {
         this.floatingTexts.push(createFloatingText(x, y - 30, `MASSIVE! ${destroyed.length} blocks!`, '#f97316', 24));
         this.api.sounds.combo(destroyed.length);
@@ -212,8 +234,10 @@ export class TowerDemolitionGame implements GameInstance {
     updatePhysics(this.blocks, dt, this.world);
 
     // Update explosions
+    let explosionsActive = false;
     for (const explosion of this.explosions) {
       if (!explosion.active) continue;
+      explosionsActive = true;
       const elapsed = time - explosion.startTime;
       explosion.radius = (elapsed / EXPLOSION_DURATION) * explosion.maxRadius;
       if (elapsed >= EXPLOSION_DURATION) {
@@ -221,77 +245,155 @@ export class TowerDemolitionGame implements GameInstance {
       }
     }
 
+    // Transition from Exploding to Settling
+    if (this.gameState === GameState.Exploding && !explosionsActive) {
+      this.gameState = GameState.Settling;
+      this.settleStartTime = time;
+    }
+
+    // Check for blocks destroyed by falling (physics)
+    if (this.gameState === GameState.Settling) {
+      const currentActive = getActiveBlockCount(this.blocks);
+      const newlyDestroyed = this.previousActiveCount - currentActive;
+
+      if (newlyDestroyed > 0) {
+        // Blocks fell off or were destroyed by physics
+        const bonusPoints = newlyDestroyed * 25 * this.level;
+        this.score += bonusPoints;
+        this.api.setScore(this.score);
+        this.blocksDestroyedThisTurn += newlyDestroyed;
+        this.previousActiveCount = currentActive;
+
+        // Reset settle timer when things are still falling
+        this.settleStartTime = time;
+      }
+    }
+
+    // Check settling completion
+    if (this.gameState === GameState.Settling) {
+      const settled = this.checkSettled();
+      const settleTimeout = (time - this.settleStartTime) > this.MAX_SETTLE_TIME;
+
+      if (settled || settleTimeout) {
+        this.onSettleComplete();
+      }
+    }
+
     // Filter effects
     this.particles = filterActiveParticles(this.particles);
     this.floatingTexts = filterActiveFloatingTexts(this.floatingTexts);
 
-    // Check if blocks have settled
-    if (this.waitingForSettle && allBlocksSettled(this.blocks)) {
-      this.waitingForSettle = false;
-
-      // Check tower cleared
-      if (isTowerCleared(this.blocks, this.initialBlockCount)) {
-        this.nextLevel();
-      } else if (this.dynamiteRemaining <= 0) {
-        // Out of dynamite and tower not cleared
-        this.triggerGameOver();
-      }
-    }
-
     this.render();
 
-    // Continue loop if physics active or effects playing
-    const physicsActive = !allBlocksSettled(this.blocks) || this.explosions.some(e => e.active);
-    if (physicsActive || hasActiveEffects(this.particles, this.floatingTexts)) {
+    // Continue loop if needed
+    const needsLoop =
+      this.gameState === GameState.Exploding ||
+      this.gameState === GameState.Settling ||
+      hasActiveEffects(this.particles, this.floatingTexts);
+
+    if (needsLoop) {
       this.animationFrameId = requestAnimationFrame(this.gameLoop);
     } else {
       this.animationFrameId = 0;
     }
   };
 
+  private checkSettled(): boolean {
+    const activeBlocks = this.blocks.filter(b => !b.destroyed);
+    if (activeBlocks.length === 0) return true;
+
+    // Check if all blocks have low velocity
+    const allSlow = activeBlocks.every(b =>
+      Math.abs(b.vx) < 5 && Math.abs(b.vy) < 5
+    );
+
+    return allSlow;
+  }
+
+  private onSettleComplete() {
+    // Show combo summary if we destroyed many blocks this turn
+    if (this.blocksDestroyedThisTurn >= 5) {
+      const rect = this.container.getBoundingClientRect();
+      this.floatingTexts.push(
+        createFloatingText(rect.width / 2, rect.height / 2,
+          `${this.blocksDestroyedThisTurn} BLOCKS DESTROYED!`, '#f97316', 22)
+      );
+      this.api.sounds.combo(this.blocksDestroyedThisTurn);
+    }
+
+    // Check win/lose conditions
+    if (isTowerCleared(this.blocks, this.initialBlockCount)) {
+      this.nextLevel();
+    } else if (this.dynamiteRemaining <= 0) {
+      this.triggerGameOver();
+    } else {
+      // Ready for next dynamite
+      this.gameState = GameState.Ready;
+    }
+  }
+
   private nextLevel() {
+    this.gameState = GameState.LevelComplete;
     this.level++;
 
     // Bonus for remaining dynamite
     const dynamiteBonus = this.dynamiteRemaining * 100 * this.level;
+
+    const rect = this.container.getBoundingClientRect();
+
+    // Show level complete
+    this.floatingTexts.push(
+      createFloatingText(rect.width / 2, rect.height / 2 - 20, `Level ${this.level}!`, '#22c55e', 32)
+    );
+
     if (dynamiteBonus > 0) {
       this.score += dynamiteBonus;
       this.api.setScore(this.score);
-
-      const rect = this.container.getBoundingClientRect();
       this.floatingTexts.push(
-        createFloatingText(rect.width / 2, rect.height / 2 + 40, `+${dynamiteBonus} dynamite bonus!`, '#22c55e', 18)
+        createFloatingText(rect.width / 2, rect.height / 2 + 20, `+${dynamiteBonus} dynamite bonus!`, '#fbbf24', 18)
       );
     }
-
-    // Level complete message
-    const rect = this.container.getBoundingClientRect();
-    this.floatingTexts.push(
-      createFloatingText(rect.width / 2, rect.height / 2, `Level ${this.level}!`, '#22c55e', 32)
-    );
 
     this.api.haptics.success();
     this.api.sounds.roundComplete();
 
-    // Reset for next level
-    this.dynamiteRemaining = DYNAMITE_COUNT;
-    this.explosions = [];
+    // Delay before starting next level
+    setTimeout(() => {
+      if (this.isDestroyed) return;
 
-    // Generate new tower
-    const tower = generateTower(this.level, this.world.groundY, this.centerX);
-    this.blocks = tower.blocks;
-    this.initialBlockCount = this.blocks.length;
+      this.dynamiteRemaining = DYNAMITE_COUNT;
+      this.explosions = [];
+
+      const tower = generateTower(this.level, this.world.groundY, this.centerX);
+      this.blocks = tower.blocks;
+      this.initialBlockCount = this.blocks.length;
+      this.gameState = GameState.Ready;
+
+      this.render();
+    }, 1500);
   }
 
   private triggerGameOver() {
-    this.isGameOver = true;
+    this.gameState = GameState.GameOver;
+
+    const rect = this.container.getBoundingClientRect();
+    const remaining = getActiveBlockCount(this.blocks);
+
+    this.floatingTexts.push(
+      createFloatingText(rect.width / 2, rect.height / 2, 'Out of Dynamite!', '#f87171', 24)
+    );
+    this.floatingTexts.push(
+      createFloatingText(rect.width / 2, rect.height / 2 + 30, `${remaining} blocks remaining`, '#94a3b8', 16)
+    );
+
     this.api.haptics.tap();
+    this.api.sounds.gameOver();
 
     setTimeout(() => {
       if (!this.isDestroyed) {
         this.api.gameOver(this.score);
       }
-    }, 500);
+    }, 1500);
   }
 
   private render() {
@@ -304,7 +406,6 @@ export class TowerDemolitionGame implements GameInstance {
     this.drawExplosions();
     this.drawHUD();
 
-    // Effects
     const reduceMotion = this.api.getSettings().reduceMotion;
     drawParticles(this.ctx, this.particles, reduceMotion);
     drawFloatingTexts(this.ctx, this.floatingTexts, reduceMotion);
@@ -314,7 +415,6 @@ export class TowerDemolitionGame implements GameInstance {
     const { ctx } = this;
     const rect = this.container.getBoundingClientRect();
 
-    // Sky gradient
     const gradient = ctx.createLinearGradient(0, 0, 0, rect.height);
     gradient.addColorStop(0, '#1e3a5f');
     gradient.addColorStop(1, '#0f172a');
@@ -326,11 +426,9 @@ export class TowerDemolitionGame implements GameInstance {
     const { ctx } = this;
     const rect = this.container.getBoundingClientRect();
 
-    // Ground
     ctx.fillStyle = '#374151';
     ctx.fillRect(0, this.world.groundY, rect.width, rect.height - this.world.groundY);
 
-    // Ground line
     ctx.strokeStyle = '#4b5563';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -349,23 +447,19 @@ export class TowerDemolitionGame implements GameInstance {
 
       ctx.save();
 
-      // Apply rotation around block center
       const cx = block.x + block.width / 2;
       const cy = block.y + block.height / 2;
       ctx.translate(cx, cy);
       ctx.rotate(block.rotation);
       ctx.translate(-block.width / 2, -block.height / 2);
 
-      // Block fill
       ctx.fillStyle = props.color;
       ctx.fillRect(0, 0, block.width, block.height);
 
-      // Block border
       ctx.strokeStyle = 'rgba(0,0,0,0.3)';
       ctx.lineWidth = 1;
       ctx.strokeRect(0, 0, block.width, block.height);
 
-      // Highlight
       ctx.fillStyle = 'rgba(255,255,255,0.1)';
       ctx.fillRect(0, 0, block.width, block.height / 3);
 
@@ -381,19 +475,16 @@ export class TowerDemolitionGame implements GameInstance {
 
       const alpha = 1 - (explosion.radius / explosion.maxRadius);
 
-      // Outer glow
       ctx.fillStyle = `rgba(249, 115, 22, ${alpha * 0.3})`;
       ctx.beginPath();
       ctx.arc(explosion.x, explosion.y, explosion.radius * 1.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Core
       ctx.fillStyle = `rgba(251, 191, 36, ${alpha * 0.6})`;
       ctx.beginPath();
       ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
       ctx.fill();
 
-      // Center flash
       ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
       ctx.beginPath();
       ctx.arc(explosion.x, explosion.y, explosion.radius * 0.3, 0, Math.PI * 2);
@@ -420,13 +511,10 @@ export class TowerDemolitionGame implements GameInstance {
       const x = startX + i * dynamiteSpacing;
       const available = i < this.dynamiteRemaining;
 
-      // Draw dynamite stick icon
       if (available) {
-        // Red stick
         ctx.fillStyle = '#ef4444';
         ctx.fillRect(x - 4, dynamiteY - 12, 8, 20);
 
-        // Fuse
         ctx.strokeStyle = '#fbbf24';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -434,31 +522,58 @@ export class TowerDemolitionGame implements GameInstance {
         ctx.lineTo(x + 3, dynamiteY - 18);
         ctx.stroke();
 
-        // Spark
         ctx.fillStyle = '#fbbf24';
         ctx.beginPath();
         ctx.arc(x + 3, dynamiteY - 19, 3, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        // Used dynamite - gray
         ctx.fillStyle = '#4b5563';
         ctx.fillRect(x - 4, dynamiteY - 12, 8, 20);
       }
     }
 
-    // Blocks remaining
+    // Blocks remaining with progress
     const remaining = getActiveBlockCount(this.blocks);
+    const destroyed = this.initialBlockCount - remaining;
+    const progress = this.initialBlockCount > 0 ? destroyed / this.initialBlockCount : 0;
+
     ctx.fillStyle = '#94a3b8';
     ctx.font = '14px system-ui, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`Blocks: ${remaining}`, 20, 30);
+    ctx.fillText(`Blocks: ${remaining}/${this.initialBlockCount}`, 20, 30);
 
-    // Instruction when waiting
-    if (!this.waitingForSettle && this.dynamiteRemaining > 0 && !this.isGameOver) {
+    // Progress bar
+    const barWidth = 80;
+    const barHeight = 6;
+    const barX = 20;
+    const barY = 38;
+
+    ctx.fillStyle = '#374151';
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+
+    const progressColor = progress >= 0.7 ? '#22c55e' : progress >= 0.5 ? '#eab308' : '#94a3b8';
+    ctx.fillStyle = progressColor;
+    ctx.fillRect(barX, barY, barWidth * progress, barHeight);
+
+    // Target line
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(barX + barWidth * 0.7, barY - 2);
+    ctx.lineTo(barX + barWidth * 0.7, barY + barHeight + 2);
+    ctx.stroke();
+
+    // Instructions
+    if (this.gameState === GameState.Ready && this.dynamiteRemaining > 0) {
       ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
       ctx.font = '12px system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Tap near tower to place dynamite', rect.width / 2, 50);
+      ctx.fillText('Tap to place dynamite', rect.width / 2, 50);
+    } else if (this.gameState === GameState.Settling) {
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Settling...', rect.width / 2, 50);
     }
   }
 
@@ -466,8 +581,7 @@ export class TowerDemolitionGame implements GameInstance {
     this.level = 1;
     this.score = 0;
     this.dynamiteRemaining = DYNAMITE_COUNT;
-    this.isGameOver = false;
-    this.waitingForSettle = false;
+    this.gameState = GameState.Ready;
     this.explosions = [];
     this.particles = [];
     this.floatingTexts = [];
@@ -491,7 +605,7 @@ export class TowerDemolitionGame implements GameInstance {
 
   resume() {
     this.isPaused = false;
-    if (!allBlocksSettled(this.blocks) || this.explosions.some(e => e.active)) {
+    if (this.gameState === GameState.Exploding || this.gameState === GameState.Settling) {
       this.startGameLoop();
     }
     this.render();
