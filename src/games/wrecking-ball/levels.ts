@@ -54,18 +54,18 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
   // Row count increases slowly: 4 rows at start, +1 row every 3 levels, max 7
   const rows = Math.min(BASE_ROWS + Math.floor((levelNum - 1) / 3), 7);
 
-  // Difficulty scaling - much gentler curve
-  // Strong bricks: none until level 3, then slowly increase
-  const strongChance = levelNum < 3 ? 0 : Math.min((levelNum - 2) * 0.06, 0.35);
+  // Difficulty scaling - fun from the start!
+  // Strong bricks: 10% base chance, increases with level
+  const strongChance = Math.min(0.10 + (levelNum - 1) * 0.04, 0.35);
 
-  // Indestructible: none until level 5, then very slowly increase
-  const indestructibleChance = levelNum < 5 ? 0 : Math.min((levelNum - 4) * 0.025, 0.12);
+  // Indestructible: 5% base chance from level 1, slowly increases
+  const indestructibleChance = Math.min(0.05 + (levelNum - 1) * 0.015, 0.12);
 
-  // Bomb bricks: start at level 2, gradually increase
-  const bombChance = levelNum < 2 ? 0 : Math.min((levelNum - 1) * 0.04, 0.15);
+  // Bomb bricks: 10% base chance from level 1, increases to add excitement
+  const bombChance = Math.min(0.10 + (levelNum - 1) * 0.02, 0.18);
 
   // Strong brick HP: starts at 2, increases every 4 levels
-  const maxStrongHp = Math.min(2 + Math.floor((levelNum - 3) / 4), 4);
+  const maxStrongHp = Math.min(2 + Math.floor(levelNum / 4), 4);
 
   // Get corridor columns for this level
   const corridors = getCorridorColumns();
@@ -178,8 +178,8 @@ export function generateBallQueue(levelNum: number): QueuedBall[] {
   // Ball count: start with 5, gain 1 every 2 levels, max 10
   const count = Math.min(5 + Math.floor((levelNum - 1) / 2), 10);
 
-  // Triple shot chance: starts at level 3, increases slowly
-  const tripleShotChance = levelNum < 3 ? 0 : Math.min((levelNum - 2) * 0.08, 0.25);
+  // Triple shot chance: 15% base from level 1, increases slowly
+  const tripleShotChance = Math.min(0.15 + (levelNum - 1) * 0.05, 0.30);
 
   const queue: QueuedBall[] = [];
   let lastWasSpecial = false;
@@ -193,6 +193,12 @@ export function generateBallQueue(levelNum: number): QueuedBall[] {
       queue.push({ type: BallType.Normal });
       lastWasSpecial = false;
     }
+  }
+
+  // Guarantee at least one triple shot from level 1
+  if (!queue.some(b => b.type === BallType.TripleShot)) {
+    const idx = Math.floor(Math.random() * Math.min(3, queue.length));
+    queue[idx] = { type: BallType.TripleShot };
   }
 
   return queue;
