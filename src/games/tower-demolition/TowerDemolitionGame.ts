@@ -31,7 +31,7 @@ enum GameState {
   GameOver,
 }
 
-const GROUND_IMPACT_VELOCITY = 200; // Velocity needed to destroy block on ground impact
+const GROUND_IMPACT_VELOCITY = 80; // Velocity needed to destroy block on ground impact (lowered for easier destruction)
 
 export class TowerDemolitionGame implements GameInstance {
   private api: GameAPI;
@@ -356,37 +356,45 @@ export class TowerDemolitionGame implements GameInstance {
   };
 
   private updatePhysicsWithGroundDestruction(dt: number) {
-    // Track blocks about to hit ground
     const activeBlocks = this.blocks.filter(b => !b.destroyed);
 
     for (const block of activeBlocks) {
       const wasAboveGround = block.y + block.height < this.world.groundY - 5;
-      const hadHighVelocity = Math.abs(block.vy) > GROUND_IMPACT_VELOCITY;
+      const previousVy = block.vy;
 
-      // Update physics
+      // Update physics for this block
       updatePhysics([block], dt, this.world);
 
       // Check if block just hit ground with enough force
       const nowAtGround = block.y + block.height >= this.world.groundY - 5;
+      const hitGroundHard = wasAboveGround && nowAtGround && Math.abs(previousVy) > GROUND_IMPACT_VELOCITY;
 
-      if (wasAboveGround && nowAtGround && hadHighVelocity && !block.destroyed) {
-        // Destroy block on impact!
+      // Also destroy blocks that fall off the sides
+      const fellOffSide = block.x + block.width < this.world.leftWall - 50 ||
+                          block.x > this.world.rightWall + 50;
+
+      // Or blocks that fall below the screen
+      const fellBelow = block.y > this.world.groundY + 100;
+
+      if ((hitGroundHard || fellOffSide || fellBelow) && !block.destroyed) {
         block.destroyed = true;
 
         const cx = block.x + block.width / 2;
-        const cy = block.y + block.height / 2;
+        const cy = Math.min(block.y + block.height / 2, this.world.groundY - 10);
         const color = BLOCK_PROPERTIES[block.type].color;
 
         // Impact particles
         this.particles.push(...generateParticlesAt(cx, cy, color, 8));
-        this.particles.push(...generateParticlesAt(cx, this.world.groundY, '#6b7280', 5));
+        if (hitGroundHard) {
+          this.particles.push(...generateParticlesAt(cx, this.world.groundY, '#6b7280', 5));
+        }
 
-        // Award points with real-time combo
+        // Award points
         this.awardPoints(1, cx, cy, false);
       }
     }
 
-    // Also update any remaining blocks (for collision resolution)
+    // Update all blocks for collision resolution
     updatePhysics(this.blocks, dt, this.world);
   }
 
