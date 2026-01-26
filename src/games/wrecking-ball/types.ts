@@ -34,12 +34,18 @@ export interface Level {
   ballCount: number;
 }
 
-// Colors for brick health states (strong bricks degrade through these)
-export const BRICK_COLORS: Record<BrickType, string[]> = {
-  [BrickType.Normal]: ['#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#f97316'],
-  [BrickType.Strong]: ['#ef4444', '#f97316', '#eab308', '#22c55e'],
-  [BrickType.Indestructible]: ['#475569'],
-};
+// Colors based on HP - index 0 = 1HP, index 1 = 2HP, etc.
+// Goes from green (easy) to red (hard)
+export const HP_COLORS = [
+  '#22c55e', // 1 HP - green
+  '#84cc16', // 2 HP - lime
+  '#eab308', // 3 HP - yellow
+  '#f97316', // 4 HP - orange
+  '#ef4444', // 5 HP - red
+  '#dc2626', // 6+ HP - dark red
+];
+
+export const INDESTRUCTIBLE_COLOR = '#475569';
 
 export const BALL_COLOR = '#f8fafc';
 export const BALL_SPEED = 450; // pixels per second

@@ -1,4 +1,4 @@
-import { Brick, BrickType, Level, BRICK_COLORS } from './types';
+import { Brick, BrickType, Level, HP_COLORS, INDESTRUCTIBLE_COLOR } from './types';
 
 const GRID_COLS = 8;
 const BASE_ROWS = 4;
@@ -11,18 +11,13 @@ export interface LevelConfig {
   brickGap: number;
 }
 
-function getBrickColor(type: BrickType, hp: number, maxHp: number, colorIndex?: number): string {
-  const colors = BRICK_COLORS[type];
+function getBrickColor(type: BrickType, hp: number): string {
   if (type === BrickType.Indestructible) {
-    return colors[0];
+    return INDESTRUCTIBLE_COLOR;
   }
-  if (type === BrickType.Normal) {
-    // Use provided color index for variety
-    return colors[colorIndex !== undefined ? colorIndex % colors.length : 0];
-  }
-  // For strong bricks, color based on remaining HP
-  const index = Math.min(maxHp - hp, colors.length - 1);
-  return colors[index];
+  // Color based on current HP - higher HP = warmer/redder color
+  const colorIndex = Math.min(hp - 1, HP_COLORS.length - 1);
+  return HP_COLORS[colorIndex];
 }
 
 // Create corridor patterns - certain columns have more gaps for ball paths
@@ -126,9 +121,6 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
       const x = gridOffsetX + col * (brickWidth + brickGap);
       const y = gridOffsetY + row * (brickHeight + brickGap);
 
-      // Color index based on row for nice visual variety
-      const colorIndex = row;
-
       bricks.push({
         x,
         y,
@@ -137,7 +129,7 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
         hp,
         maxHp,
         type,
-        color: getBrickColor(type, hp, maxHp, colorIndex),
+        color: getBrickColor(type, hp),
       });
     }
   }
@@ -151,7 +143,7 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
       brick.type = BrickType.Normal;
       brick.hp = 1;
       brick.maxHp = 1;
-      brick.color = getBrickColor(brick.type, brick.hp, brick.maxHp);
+      brick.color = getBrickColor(brick.type, brick.hp);
     }
   }
 
@@ -162,7 +154,7 @@ export function generateLevel(levelNum: number, config: LevelConfig): Level {
 }
 
 export function updateBrickColor(brick: Brick): void {
-  brick.color = getBrickColor(brick.type, brick.hp, brick.maxHp);
+  brick.color = getBrickColor(brick.type, brick.hp);
 }
 
 export function getDestructibleCount(bricks: Brick[]): number {

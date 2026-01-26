@@ -79,24 +79,33 @@ export class WreckingBallGame implements GameInstance {
     this.canvas.height = rect.height * dpr;
     this.ctx.scale(dpr, dpr);
 
-    const padding = 16;
+    // Optimized for vertical phone layout
+    const sidePadding = 12;
+    const topPadding = 50; // Space for level indicator
+    const bottomPadding = 100; // Space for launcher and ball indicators
+
     this.bounds = {
-      left: padding,
-      right: rect.width - padding,
-      top: padding,
-      bottom: rect.height - 80,
+      left: sidePadding,
+      right: rect.width - sidePadding,
+      top: topPadding,
+      bottom: rect.height - bottomPadding,
     };
 
-    // Calculate brick sizes
+    // Calculate brick sizes - smaller bricks for more play area
     const gridWidth = this.bounds.right - this.bounds.left;
     const cols = 8;
-    const gap = 4;
-    const brickWidth = (gridWidth - gap * (cols - 1)) / cols;
-    const brickHeight = brickWidth * 0.5;
+    const gap = 3;
+    // Smaller bricks: use 0.4 ratio instead of full width division
+    const brickWidth = Math.floor((gridWidth - gap * (cols - 1)) / cols * 0.85);
+    const brickHeight = Math.floor(brickWidth * 0.45);
+
+    // Center the grid horizontally
+    const totalGridWidth = brickWidth * cols + gap * (cols - 1);
+    const gridOffsetX = (rect.width - totalGridWidth) / 2;
 
     this.levelConfig = {
-      gridOffsetX: this.bounds.left,
-      gridOffsetY: this.bounds.top + 60,
+      gridOffsetX,
+      gridOffsetY: this.bounds.top,
       brickWidth,
       brickHeight,
       brickGap: gap,
@@ -104,7 +113,7 @@ export class WreckingBallGame implements GameInstance {
 
     // Launch position at bottom center
     this.launchX = rect.width / 2;
-    this.launchY = this.bounds.bottom - 20;
+    this.launchY = rect.height - 60;
 
     this.render();
   };
@@ -341,6 +350,7 @@ export class WreckingBallGame implements GameInstance {
     this.drawBalls();
     this.drawAimLine();
     this.drawLauncher();
+    this.drawBallIndicators();
 
     // Effects
     const reduceMotion = this.api.getSettings().reduceMotion;
@@ -350,27 +360,38 @@ export class WreckingBallGame implements GameInstance {
 
   private drawHUD() {
     const { ctx } = this;
+    const rect = this.container.getBoundingClientRect();
 
-    // Level indicator
+    // Level indicator at top
     ctx.fillStyle = '#94a3b8';
     ctx.font = 'bold 16px system-ui, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(`Level ${this.level}`, this.bounds.left, 30);
+    ctx.textAlign = 'center';
+    ctx.fillText(`Level ${this.level}`, rect.width / 2, 30);
+  }
 
-    // Balls remaining
-    ctx.textAlign = 'right';
-    ctx.fillText(`Balls: ${this.ballsRemaining}`, this.bounds.right, 30);
+  private drawBallIndicators() {
+    const { ctx } = this;
+    const rect = this.container.getBoundingClientRect();
 
-    // Ball indicators
-    const ballIndicatorY = 45;
-    const ballIndicatorSpacing = 20;
-    const startX = this.bounds.right - (this.ballsRemaining - 1) * ballIndicatorSpacing;
+    // Ball indicators near the launcher
+    const ballIndicatorY = rect.height - 25;
+    const ballIndicatorSpacing = 18;
+    const totalWidth = (this.ballsRemaining - 1) * ballIndicatorSpacing;
+    const startX = rect.width / 2 - totalWidth / 2;
 
     ctx.fillStyle = BALL_COLOR;
     for (let i = 0; i < this.ballsRemaining; i++) {
       ctx.beginPath();
-      ctx.arc(startX + i * ballIndicatorSpacing - 10, ballIndicatorY, 6, 0, Math.PI * 2);
+      ctx.arc(startX + i * ballIndicatorSpacing, ballIndicatorY, 5, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // "x N" label if many balls
+    if (this.ballsRemaining > 0) {
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`x${this.ballsRemaining}`, rect.width / 2, rect.height - 8);
     }
   }
 
@@ -382,13 +403,13 @@ export class WreckingBallGame implements GameInstance {
 
       ctx.fillStyle = brick.color;
       ctx.beginPath();
-      ctx.roundRect(brick.x, brick.y, brick.width, brick.height, 4);
+      ctx.roundRect(brick.x, brick.y, brick.width, brick.height, 3);
       ctx.fill();
 
-      // Draw HP indicator for strong bricks
-      if (brick.type === BrickType.Strong && brick.hp > 1) {
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.font = 'bold 12px system-ui, sans-serif';
+      // Draw HP number for any brick with more than 1 HP
+      if (brick.type !== BrickType.Indestructible && brick.hp > 1) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.font = `bold ${Math.min(brick.height * 0.6, 14)}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(
@@ -400,9 +421,9 @@ export class WreckingBallGame implements GameInstance {
 
       // Draw X for indestructible
       if (brick.type === BrickType.Indestructible) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
         ctx.lineWidth = 2;
-        const pad = 6;
+        const pad = Math.min(brick.width, brick.height) * 0.2;
         ctx.beginPath();
         ctx.moveTo(brick.x + pad, brick.y + pad);
         ctx.lineTo(brick.x + brick.width - pad, brick.y + brick.height - pad);
