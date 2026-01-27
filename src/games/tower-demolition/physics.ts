@@ -1,9 +1,9 @@
 import { Block, GRAVITY, BLOCK_PROPERTIES } from './types';
 
-const FRICTION = 0.8;
-const BOUNCE = 0.3;
-const SETTLE_THRESHOLD = 5; // Velocity threshold for settling
-const ROTATION_DAMPING = 0.95;
+const FRICTION = 0.3; // Lower = more friction = less sliding
+const BOUNCE = 0.2;
+const SETTLE_THRESHOLD = 8; // Velocity threshold for settling
+const ROTATION_DAMPING = 0.85;
 
 export interface PhysicsWorld {
   groundY: number;
@@ -133,7 +133,8 @@ export function applyExplosion(
   explosionX: number,
   explosionY: number,
   radius: number,
-  force: number
+  force: number,
+  destroyRadius: number = 0.6 // Multiplier of radius where blocks are destroyed
 ): Block[] {
   const destroyed: Block[] = [];
 
@@ -153,7 +154,7 @@ export function applyExplosion(
     const blockRadius = Math.max(block.width, block.height) / 2;
     if (dist < radius + blockRadius) {
       // Direct hit - destroy block
-      if (dist < radius * 0.6) {
+      if (dist < radius * destroyRadius) {
         block.destroyed = true;
         destroyed.push(block);
       } else {
@@ -163,8 +164,8 @@ export function applyExplosion(
         const normalizedDy = dy / (dist || 1);
 
         block.vx += normalizedDx * force * strength;
-        block.vy += normalizedDy * force * strength - 100; // Slight upward boost
-        block.rotationVel += (Math.random() - 0.5) * strength * 5;
+        block.vy += normalizedDy * force * strength - 80; // Slight upward boost
+        block.rotationVel += (Math.random() - 0.5) * strength * 6;
         block.settled = false;
       }
     }

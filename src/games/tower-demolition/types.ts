@@ -9,6 +9,13 @@ export enum BlockType {
   Steel = 'steel',
 }
 
+export enum BombType {
+  Dynamite = 'dynamite',     // Standard - balanced radius and force
+  CartoonBomb = 'cartoon',   // Big radius, medium force
+  Cluster = 'cluster',       // Multiple small explosions
+  Shockwave = 'shockwave',   // Small damage radius but huge push force
+}
+
 export interface Block {
   id: number;
   x: number;
@@ -31,6 +38,7 @@ export interface Explosion {
   maxRadius: number;
   active: boolean;
   startTime: number;
+  bombType: BombType;
 }
 
 export interface Tower {
@@ -45,8 +53,54 @@ export const BLOCK_PROPERTIES: Record<BlockType, { color: string; strength: numb
   [BlockType.Steel]: { color: '#64748b', strength: 3, weight: 2 },
 };
 
+// Bomb properties by type
+export const BOMB_PROPERTIES: Record<BombType, {
+  radius: number;
+  force: number;
+  destroyRadius: number; // Multiplier of radius where blocks are destroyed
+  color: string;
+  secondaryColor: string;
+  name: string;
+  icon: string;
+}> = {
+  [BombType.Dynamite]: {
+    radius: 55,
+    force: 350,
+    destroyRadius: 0.6,
+    color: '#ef4444',
+    secondaryColor: '#fbbf24',
+    name: 'Dynamite',
+    icon: 'stick',
+  },
+  [BombType.CartoonBomb]: {
+    radius: 100,
+    force: 300,
+    destroyRadius: 0.5,
+    color: '#1f2937',
+    secondaryColor: '#f97316',
+    name: 'Mega Bomb',
+    icon: 'bomb',
+  },
+  [BombType.Cluster]: {
+    radius: 35,
+    force: 250,
+    destroyRadius: 0.7,
+    color: '#22c55e',
+    secondaryColor: '#86efac',
+    name: 'Cluster',
+    icon: 'cluster',
+  },
+  [BombType.Shockwave]: {
+    radius: 40,
+    force: 600,
+    destroyRadius: 0.3,
+    color: '#8b5cf6',
+    secondaryColor: '#c4b5fd',
+    name: 'Shockwave',
+    icon: 'wave',
+  },
+};
+
 export const GRAVITY = 800; // pixels per second squared
-export const DYNAMITE_COUNT = 3;
-export const EXPLOSION_RADIUS = 60;
-export const EXPLOSION_FORCE = 400;
-export const EXPLOSION_DURATION = 300; // ms
+export const BOMBS_PER_LEVEL = 3;
+export const EXPLOSION_DURATION = 350; // ms
