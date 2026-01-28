@@ -11,10 +11,10 @@ const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
   'dice-risk': {
     title: 'Dice Risk',
     rules: [
-      'You have a limited pool of dice - spend wisely!',
-      'Choose 1, 2, or 3 dice to roll each turn',
-      'Cyan spaces give you more dice to keep playing',
-      'Red danger zones cost you dice from your pool',
+      'Spend dice from your pool to roll each turn (1-3)',
+      'Cyan spaces add dice, red danger zones cost dice',
+      'Pink multiplier dice boost ALL point gains permanently',
+      '2x/3x spaces multiply your roll value for big points',
       'Complete laps around the board to level up',
       'Game over when you run out of dice!',
     ],

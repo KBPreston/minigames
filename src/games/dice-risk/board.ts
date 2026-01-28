@@ -61,7 +61,8 @@ function placeSpecialSpaces(board: BoardSpace[], level: number, boardSize: numbe
 
   // Calculate number of special spaces based on board size
   const numBonus = Math.floor(boardSize * 0.15); // ~15%
-  const numDice = Math.floor(boardSize * 0.15); // ~15%
+  const numDice = Math.floor(boardSize * 0.12); // ~12%
+  const numMultDice = Math.floor(boardSize * 0.08); // ~8% - multiplier dice
   const numMult = Math.floor(boardSize * 0.1); // ~10%
   const numPenalty = Math.floor(boardSize * 0.1); // ~10%
   const numDanger = Math.floor(boardSize * 0.1) + Math.min(level - 1, 3); // ~10% + level scaling
@@ -100,7 +101,17 @@ function placeSpecialSpaces(board: BoardSpace[], level: number, boardSize: numbe
       type: SpaceType.Dice,
       points: 0,
       diceChange: diceGain,
-      label: `+${diceGain}D`,
+    };
+  }
+
+  // Place multiplier dice spaces (+1 multiplier dice)
+  for (let i = 0; i < numMultDice && posIndex < availablePositions.length; i++) {
+    const pos = availablePositions[posIndex++];
+    board[pos] = {
+      index: pos,
+      type: SpaceType.MultDice,
+      points: 0,
+      multDiceChange: 1,
     };
   }
 
@@ -137,7 +148,6 @@ function placeSpecialSpaces(board: BoardSpace[], level: number, boardSize: numbe
       type: SpaceType.Danger,
       points: 0,
       diceChange: diceLoss,
-      label: `${diceLoss}D`,
     };
   }
 }
@@ -195,6 +205,13 @@ export function applySpaceEffect(
         type: space.type,
         points: 0,
         diceChange: space.diceChange,
+      };
+
+    case SpaceType.MultDice:
+      return {
+        type: space.type,
+        points: 0,
+        multDiceChange: space.multDiceChange,
       };
 
     case SpaceType.Mult2x:

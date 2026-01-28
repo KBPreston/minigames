@@ -43,6 +43,7 @@ export class DiceRiskGame implements GameInstance {
   private position: number = 0;
   private score: number = 0;
   private dicePool: number = 10;
+  private multDicePool: number = 0; // Multiplier dice - adds to score multiplier
   private level: number = 1;
   private lapProgress: number = 0;
   private phase: GamePhase = GamePhase.Idle;
@@ -84,6 +85,11 @@ export class DiceRiskGame implements GameInstance {
     this.resize();
     window.addEventListener('resize', this.resize);
     this.canvas.addEventListener('click', this.handleClick);
+  }
+
+  /** Get the current score multiplier (base 1 + multDicePool * 0.5) */
+  private getScoreMultiplier(): number {
+    return 1 + this.multDicePool * 0.5;
   }
 
   private resize = () => {
@@ -276,13 +282,25 @@ export class DiceRiskGame implements GameInstance {
       this.boardOffsetY
     );
 
+    // Apply score multiplier to positive point gains
+    const multiplier = this.getScoreMultiplier();
+    let finalPoints = effect.points;
+    if (effect.points > 0) {
+      finalPoints = Math.floor(effect.points * multiplier);
+    }
+
     // Apply score change
-    this.score = Math.max(0, this.score + effect.points);
+    this.score = Math.max(0, this.score + finalPoints);
     this.api.setScore(this.score);
 
     // Apply dice change
     if (effect.diceChange) {
       this.dicePool = Math.max(0, this.dicePool + effect.diceChange);
+    }
+
+    // Apply multiplier dice change
+    if (effect.multDiceChange) {
+      this.multDicePool = Math.max(0, this.multDicePool + effect.multDiceChange);
     }
 
     // Create visual effects based on space type
@@ -291,9 +309,15 @@ export class DiceRiskGame implements GameInstance {
     switch (space.type) {
       case SpaceType.Bonus:
         this.particles.push(...generateParticlesAt(pos.x, pos.y, color, 12));
-        this.floatingTexts.push(
-          createFloatingText(pos.x, pos.y - 20, `+${effect.points}`, color, 24)
-        );
+        if (multiplier > 1) {
+          this.floatingTexts.push(
+            createFloatingText(pos.x, pos.y - 20, `+${finalPoints} (${multiplier.toFixed(1)}x)`, color, 22)
+          );
+        } else {
+          this.floatingTexts.push(
+            createFloatingText(pos.x, pos.y - 20, `+${finalPoints}`, color, 24)
+          );
+        }
         this.api.sounds.combo(2);
         this.api.haptics.success();
         break;
@@ -301,10 +325,10 @@ export class DiceRiskGame implements GameInstance {
       case SpaceType.Jackpot:
         this.particles.push(...generateParticlesAt(pos.x, pos.y, color, 20));
         this.floatingTexts.push(
-          createFloatingText(pos.x, pos.y - 20, `+${effect.points}`, color, 28)
+          createFloatingText(pos.x, pos.y - 20, `+${finalPoints}`, color, 28)
         );
         this.floatingTexts.push(
-          createFloatingText(pos.x, pos.y + 20, `+${effect.diceChange}D`, '#06b6d4', 24)
+          createFloatingText(pos.x, pos.y + 20, `+${effect.diceChange} DICE`, '#06b6d4', 20)
         );
         this.api.sounds.newHighScore();
         this.api.haptics.success();
@@ -313,27 +337,43 @@ export class DiceRiskGame implements GameInstance {
       case SpaceType.Dice:
         this.particles.push(...generateParticlesAt(pos.x, pos.y, color, 10));
         this.floatingTexts.push(
-          createFloatingText(pos.x, pos.y - 20, `+${effect.diceChange}D`, color, 24)
+          createFloatingText(pos.x, pos.y - 20, `+${effect.diceChange} DICE`, color, 24)
         );
         this.api.sounds.combo(1);
         this.api.haptics.success();
         break;
 
+      case SpaceType.MultDice:
+        this.particles.push(...generateParticlesAt(pos.x, pos.y, color, 12));
+        this.floatingTexts.push(
+          createFloatingText(pos.x, pos.y - 20, `+${effect.multDiceChange} MULT`, color, 24)
+        );
+        this.floatingTexts.push(
+          createFloatingText(pos.x, pos.y + 15, `${this.getScoreMultiplier().toFixed(1)}x`, '#ec4899', 18)
+        );
+        this.api.sounds.combo(3);
+        this.api.haptics.success();
+        break;
+
       case SpaceType.Mult2x:
-      case SpaceType.Mult3x:
+      case SpaceType.Mult3x: {
+        const spaceMultiplier = space.type === SpaceType.Mult2x ? 2 : 3;
+        const basePoints = effect.roll! * spaceMultiplier * this.level;
+        const finalMult = Math.floor(basePoints * multiplier);
         this.particles.push(...generateParticlesAt(pos.x, pos.y, color, 10));
         this.floatingTexts.push(
           createFloatingText(
             pos.x,
             pos.y - 20,
-            `${effect.multiplier}x${effect.roll} = +${effect.points}`,
+            `${spaceMultiplier}x roll = +${finalMult}`,
             color,
             20
           )
         );
-        this.api.sounds.merge(effect.points);
+        this.api.sounds.merge(finalMult);
         this.api.haptics.success();
         break;
+      }
 
       case SpaceType.Penalty:
         this.floatingTexts.push(
@@ -344,15 +384,15 @@ export class DiceRiskGame implements GameInstance {
 
       case SpaceType.Danger:
         this.floatingTexts.push(
-          createFloatingText(pos.x, pos.y - 20, `${effect.diceChange}D`, '#ef4444', 24)
+          createFloatingText(pos.x, pos.y - 20, `${effect.diceChange} DICE`, '#ef4444', 24)
         );
         this.api.sounds.warning();
         break;
 
       case SpaceType.Normal:
-        if (effect.points > 0) {
+        if (finalPoints > 0) {
           this.floatingTexts.push(
-            createFloatingText(pos.x, pos.y - 20, `+${effect.points}`, '#9ca3af', 18)
+            createFloatingText(pos.x, pos.y - 20, `+${finalPoints}`, '#9ca3af', 18)
           );
         }
         break;
@@ -501,6 +541,9 @@ export class DiceRiskGame implements GameInstance {
     // Draw board
     this.drawBoard();
 
+    // Draw direction arrows
+    this.drawDirectionArrows();
+
     // Draw player
     this.drawPlayer();
 
@@ -541,22 +584,154 @@ export class DiceRiskGame implements GameInstance {
       ctx.roundRect(px + pad, py + pad, cellSize - pad * 2, cellSize - pad * 2, 6);
       ctx.fill();
 
-      // Draw space label
-      ctx.fillStyle = space.type === SpaceType.Normal ? '#1f2937' : '#fff';
-      ctx.font = `bold ${cellSize * 0.25}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      // Draw space content
+      const cx = px + cellSize / 2;
+      const cy = py + cellSize / 2;
 
-      const label = space.label || '';
-      ctx.fillText(label, px + cellSize / 2, py + cellSize / 2);
+      // For dice-related spaces, draw dice icons instead of text
+      if (space.type === SpaceType.Dice && space.diceChange) {
+        this.drawMiniDice(cx, cy, cellSize * 0.4, space.diceChange, '#fff');
+      } else if (space.type === SpaceType.MultDice) {
+        this.drawMiniDice(cx, cy, cellSize * 0.35, 1, '#fff', true); // true = multiplier dice (star)
+      } else if (space.type === SpaceType.Danger && space.diceChange) {
+        this.drawMiniDice(cx, cy, cellSize * 0.4, space.diceChange, '#fff');
+      } else {
+        // Draw text label
+        ctx.fillStyle = space.type === SpaceType.Normal ? '#1f2937' : '#fff';
+        ctx.font = `bold ${cellSize * 0.25}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const label = space.label || '';
+        ctx.fillText(label, cx, cy);
+      }
 
       // Draw space number in corner
       ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-      ctx.font = `${cellSize * 0.18}px sans-serif`;
+      ctx.font = `${cellSize * 0.16}px sans-serif`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(String(i), px + pad + 4, py + pad + 2);
+      ctx.fillText(String(i), px + pad + 3, py + pad + 2);
     }
+  }
+
+  /** Draw mini dice icons on board spaces */
+  private drawMiniDice(cx: number, cy: number, size: number, count: number, color: string, isMultiplier = false) {
+    const { ctx } = this;
+    const diceSize = size * 0.8;
+    const isNegative = count < 0;
+    const absCount = Math.abs(count);
+
+    // Position dice based on count
+    const positions: [number, number][] = absCount === 1
+      ? [[0, 0]]
+      : absCount === 2
+        ? [[-diceSize * 0.4, 0], [diceSize * 0.4, 0]]
+        : [[-diceSize * 0.5, 0], [diceSize * 0.5, 0], [0, -diceSize * 0.4]];
+
+    for (let i = 0; i < Math.min(absCount, 3); i++) {
+      const [dx, dy] = positions[i];
+      const x = cx + dx - diceSize / 2;
+      const y = cy + dy - diceSize / 2;
+
+      // Die background
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(x, y, diceSize, diceSize, 3);
+      ctx.fill();
+
+      // Draw pips or star
+      const pipColor = isNegative ? '#ef4444' : (isMultiplier ? '#ec4899' : '#1f2937');
+      ctx.fillStyle = pipColor;
+
+      if (isMultiplier) {
+        // Draw star for multiplier dice
+        this.drawStar(x + diceSize / 2, y + diceSize / 2, diceSize * 0.25, diceSize * 0.12);
+      } else {
+        // Draw single pip
+        ctx.beginPath();
+        ctx.arc(x + diceSize / 2, y + diceSize / 2, diceSize * 0.15, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Draw +/- indicator
+    ctx.fillStyle = color;
+    ctx.font = `bold ${size * 0.5}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const sign = isNegative ? '' : '+';
+    ctx.fillText(`${sign}${count}`, cx, cy + size * 0.35);
+  }
+
+  /** Draw a 5-pointed star */
+  private drawStar(cx: number, cy: number, outerR: number, innerR: number) {
+    const { ctx } = this;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? outerR : innerR;
+      const angle = (i * Math.PI) / 5 - Math.PI / 2;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** Draw direction arrows showing the path around the ring */
+  private drawDirectionArrows() {
+    const { ctx, cellSize, boardOffsetX, boardOffsetY, boardSize } = this;
+    const gridSize = getRingGridSize(boardSize);
+
+    // Draw arrows at key positions (corners and midpoints)
+    const arrowPositions = [
+      Math.floor(gridSize / 2), // Top middle
+      gridSize, // Right top
+      gridSize + Math.floor((gridSize - 2) / 2), // Right middle
+      gridSize * 2 - 1, // Bottom right corner area
+      gridSize * 2 + Math.floor(gridSize / 2), // Bottom middle
+      gridSize * 3 - 1, // Left bottom corner area
+      gridSize * 3 + Math.floor((gridSize - 2) / 2), // Left middle
+    ];
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+
+    for (const idx of arrowPositions) {
+      if (idx >= boardSize) continue;
+
+      const { x, y, side } = indexToRingPosition(idx, boardSize);
+      const px = boardOffsetX + x * cellSize + cellSize / 2;
+      const py = boardOffsetY + y * cellSize + cellSize / 2;
+
+      // Determine arrow direction based on side
+      let angle = 0;
+      switch (side) {
+        case 'top': angle = 0; break; // pointing right
+        case 'right': angle = Math.PI / 2; break; // pointing down
+        case 'bottom': angle = Math.PI; break; // pointing left
+        case 'left': angle = -Math.PI / 2; break; // pointing up
+      }
+
+      this.drawArrow(px, py, angle, cellSize * 0.15);
+    }
+  }
+
+  /** Draw a small arrow */
+  private drawArrow(x: number, y: number, angle: number, size: number) {
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    ctx.beginPath();
+    ctx.moveTo(size, 0);
+    ctx.lineTo(-size * 0.5, -size * 0.6);
+    ctx.lineTo(-size * 0.5, size * 0.6);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
   }
 
   private drawPlayer() {
@@ -639,35 +814,48 @@ export class DiceRiskGame implements GameInstance {
   }
 
   private drawDicePool(width: number) {
-    const { ctx, dicePoolY, dicePool } = this;
-    const diceSize = 28;
-    const diceGap = 6;
-    const maxVisibleDice = 15;
+    const { ctx, dicePoolY, dicePool, multDicePool } = this;
+    const diceSize = 24;
+    const diceGap = 4;
+    const maxVisibleDice = 12;
     const visibleDice = Math.min(dicePool, maxVisibleDice);
 
-    // Calculate total width
-    const totalWidth = visibleDice * (diceSize + diceGap) - diceGap;
-    let startX = (width - totalWidth) / 2;
+    // Calculate total width including multiplier dice
+    const totalDiceWidth = visibleDice * (diceSize + diceGap) - diceGap;
 
     // Low dice warning pulse
-    let warningAlpha = 0;
     if (dicePool <= 3 && dicePool > 0) {
-      warningAlpha = Math.abs(Math.sin(this.lowDiceWarningPulse)) * 0.5;
+      const warningAlpha = Math.abs(Math.sin(this.lowDiceWarningPulse)) * 0.5;
       ctx.fillStyle = `rgba(239, 68, 68, ${warningAlpha})`;
       ctx.fillRect(0, dicePoolY - 10, width, 55);
     }
 
-    // Label
+    // Main label
     ctx.fillStyle = dicePool <= 3 ? '#ef4444' : '#94a3b8';
-    ctx.font = 'bold 14px sans-serif';
-    ctx.textAlign = 'center';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText(`Dice Pool: ${dicePool}`, width / 2, dicePoolY - 5);
+    ctx.fillText(`Dice: ${dicePool}`, 16, dicePoolY - 3);
 
-    // Draw dice icons
+    // Multiplier display
+    if (multDicePool > 0) {
+      ctx.fillStyle = '#ec4899';
+      ctx.textAlign = 'right';
+      ctx.fillText(`Mult: ${this.getScoreMultiplier().toFixed(1)}x`, width - 16, dicePoolY - 3);
+    }
+
+    // Center the dice display
+    let startX = (width - totalDiceWidth) / 2;
+    if (multDicePool > 0) {
+      // Also show multiplier dice
+      const multWidth = multDicePool * (diceSize + diceGap);
+      startX = (width - totalDiceWidth - 20 - multWidth) / 2;
+    }
+
+    // Draw regular dice icons
     for (let i = 0; i < visibleDice; i++) {
       const x = startX + i * (diceSize + diceGap);
-      const y = dicePoolY + 15;
+      const y = dicePoolY + 12;
 
       // Die background
       ctx.fillStyle = '#fff';
@@ -679,33 +867,51 @@ export class DiceRiskGame implements GameInstance {
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Draw a simple die face (showing 6)
+      // Draw single pip (simplified)
       ctx.fillStyle = '#1f2937';
-      const pipSize = diceSize * 0.12;
-      const offset = diceSize * 0.25;
-      const cx = x + diceSize / 2;
-      const cy = y + diceSize / 2;
-
-      // 6 pips
-      const pips = [
-        [-offset, -offset], [offset, -offset],
-        [-offset, 0], [offset, 0],
-        [-offset, offset], [offset, offset],
-      ];
-      for (const [px, py] of pips) {
-        ctx.beginPath();
-        ctx.arc(cx + px, cy + py, pipSize, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      ctx.beginPath();
+      ctx.arc(x + diceSize / 2, y + diceSize / 2, diceSize * 0.12, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // Show overflow indicator
     if (dicePool > maxVisibleDice) {
       ctx.fillStyle = '#94a3b8';
-      ctx.font = '12px sans-serif';
+      ctx.font = '11px sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`+${dicePool - maxVisibleDice}`, startX + totalWidth + 8, dicePoolY + 15 + diceSize / 2);
+      ctx.fillText(`+${dicePool - maxVisibleDice}`, startX + totalDiceWidth + 4, dicePoolY + 12 + diceSize / 2);
+    }
+
+    // Draw multiplier dice (pink)
+    if (multDicePool > 0) {
+      const multStartX = startX + totalDiceWidth + 20;
+      for (let i = 0; i < Math.min(multDicePool, 5); i++) {
+        const x = multStartX + i * (diceSize + diceGap);
+        const y = dicePoolY + 12;
+
+        // Die background (pink tinted)
+        ctx.fillStyle = '#fdf2f8';
+        ctx.beginPath();
+        ctx.roundRect(x, y, diceSize, diceSize, 4);
+        ctx.fill();
+
+        ctx.strokeStyle = '#ec4899';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Draw star
+        ctx.fillStyle = '#ec4899';
+        this.drawStar(x + diceSize / 2, y + diceSize / 2, diceSize * 0.25, diceSize * 0.12);
+      }
+
+      if (multDicePool > 5) {
+        ctx.fillStyle = '#ec4899';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`+${multDicePool - 5}`, multStartX + 5 * (diceSize + diceGap) + 4, dicePoolY + 12 + diceSize / 2);
+      }
     }
   }
 
@@ -737,7 +943,7 @@ export class DiceRiskGame implements GameInstance {
       startX += diceSize + 10;
     }
 
-    // Show total
+    // Show total with multiplier info
     if (faces.length > 0 && phase !== GamePhase.Rolling) {
       const total = faces.reduce((a, b) => a + b, 0);
       ctx.fillStyle = '#fff';
@@ -890,6 +1096,7 @@ export class DiceRiskGame implements GameInstance {
     this.position = 0;
     this.score = 0;
     this.dicePool = getStartingDice(this.boardSize);
+    this.multDicePool = 0;
     this.lapProgress = 0;
     this.phase = GamePhase.Idle;
     this.lastRoll = 0;

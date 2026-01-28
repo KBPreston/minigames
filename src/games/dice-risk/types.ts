@@ -17,6 +17,7 @@ export interface BoardSpace {
   type: SpaceType;
   points: number; // Base points
   diceChange?: number; // Dice gained/lost
+  multDiceChange?: number; // Multiplier dice gained
   label?: string; // Display label like "+25", "2x", etc.
 }
 
@@ -47,6 +48,7 @@ export interface SpaceEffect {
   type: SpaceType;
   points: number;
   diceChange?: number;
+  multDiceChange?: number; // Change to multiplier dice pool
   multiplier?: number;
   roll?: number;
 }
@@ -59,6 +61,7 @@ export const SPACE_COLORS: Record<SpaceType, string> = {
   [SpaceType.Mult3x]: '#a855f7', // Purple
   [SpaceType.Penalty]: '#f97316', // Orange
   [SpaceType.Dice]: '#06b6d4', // Cyan
+  [SpaceType.MultDice]: '#ec4899', // Pink - multiplier dice
   [SpaceType.Danger]: '#ef4444', // Red
   [SpaceType.Jackpot]: '#eab308', // Gold
 };
