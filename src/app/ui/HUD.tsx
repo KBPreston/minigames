@@ -65,11 +65,11 @@ export function HUD({ gameId, gameName, score, onOptionsClick, onInfoClick }: HU
       </div>
 
       <div className="flex flex-col items-center">
-        <span className="text-sm font-medium text-white/60">{gameName}</span>
+        <span className="text-sm font-semibold text-white/60 font-display">{gameName}</span>
         <div className="flex items-center gap-3">
-          <span className="text-2xl font-bold tabular-nums">{score.toLocaleString()}</span>
+          <span className="text-2xl font-extrabold tabular-nums font-display">{score.toLocaleString()}</span>
           {bestScore > 0 && (
-            <span className="text-sm text-yellow-400/80">
+            <span className="text-sm text-primary-400/90 font-display font-semibold">
               Best: {bestScore.toLocaleString()}
             </span>
           )}

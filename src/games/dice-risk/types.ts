@@ -1,4 +1,4 @@
-// Type definitions for Dice Risk game
+// Type definitions for Dice Risk v2 - Endless Board Game
 
 export enum SpaceType {
   Normal = 'normal',
@@ -6,21 +6,18 @@ export enum SpaceType {
   Mult2x = 'mult2x',
   Mult3x = 'mult3x',
   Penalty = 'penalty',
-  Star = 'star',
-  Danger = 'danger',
-  Finish = 'finish',
+  Dice = 'dice', // Awards dice to pool
+  MultDice = 'multdice', // Awards multiplier dice (permanent score boost)
+  Danger = 'danger', // Costs dice from pool
+  Jackpot = 'jackpot', // Big points + dice
 }
 
 export interface BoardSpace {
   index: number;
   type: SpaceType;
-  points: number; // Base points or percentage for Danger
+  points: number; // Base points
+  diceChange?: number; // Dice gained/lost
   label?: string; // Display label like "+25", "2x", etc.
-}
-
-export interface PlayerState {
-  position: number;
-  score: number;
 }
 
 export enum GamePhase {
@@ -28,7 +25,8 @@ export enum GamePhase {
   Rolling = 'rolling',
   Moving = 'moving',
   Effect = 'effect',
-  Finished = 'finished',
+  LevelUp = 'levelup',
+  GameOver = 'gameover',
 }
 
 export interface DiceAnimation {
@@ -48,6 +46,7 @@ export interface MoveAnimation {
 export interface SpaceEffect {
   type: SpaceType;
   points: number;
+  diceChange?: number;
   multiplier?: number;
   roll?: number;
 }
@@ -59,7 +58,26 @@ export const SPACE_COLORS: Record<SpaceType, string> = {
   [SpaceType.Mult2x]: '#3b82f6', // Blue
   [SpaceType.Mult3x]: '#a855f7', // Purple
   [SpaceType.Penalty]: '#f97316', // Orange
-  [SpaceType.Star]: '#eab308', // Gold
+  [SpaceType.Dice]: '#06b6d4', // Cyan
   [SpaceType.Danger]: '#ef4444', // Red
-  [SpaceType.Finish]: '#ec4899', // Pink
+  [SpaceType.Jackpot]: '#eab308', // Gold
 };
+
+/**
+ * Get board size for a given level
+ * Level 1-2: 20 spaces (5 per side)
+ * Level 3-4: 24 spaces (6 per side)
+ * Level 5+: 28 spaces (7 per side)
+ */
+export function getBoardSizeForLevel(level: number): number {
+  if (level <= 2) return 20;
+  if (level <= 4) return 24;
+  return 28;
+}
+
+/**
+ * Get starting dice pool for a board size
+ */
+export function getStartingDice(boardSize: number): number {
+  return Math.floor(boardSize / 2);
+}

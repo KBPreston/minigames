@@ -11,12 +11,12 @@ const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
   'dice-risk': {
     title: 'Dice Risk',
     rules: [
+      'You have a limited pool of dice - spend wisely!',
       'Choose 1, 2, or 3 dice to roll each turn',
-      'Fewer dice = precision, more dice = speed',
-      'Green bonus and gold Star spaces give points',
-      'Blue 2x and purple 3x multiply your roll',
-      'Avoid orange penalties and red danger zones',
-      'Reach the finish line for +200 bonus!',
+      'Cyan spaces give you more dice to keep playing',
+      'Red danger zones cost you dice from your pool',
+      'Complete laps around the board to level up',
+      'Game over when you run out of dice!',
     ],
   },
   'wrecking-ball': {
@@ -97,7 +97,7 @@ export function GameInfoModal({ isOpen, onClose, gameId }: GameInfoModalProps) {
       {/* Modal */}
       <div className="relative bg-gray-800 rounded-2xl p-6 max-w-sm w-full animate-pop-in">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold">{info.title}</h2>
+          <h2 className="text-xl font-bold font-display">{info.title}</h2>
           <button
             onClick={handleClose}
             className="p-2 -m-2 text-gray-400 hover:text-white"
@@ -123,7 +123,7 @@ export function GameInfoModal({ isOpen, onClose, gameId }: GameInfoModalProps) {
 
         <button
           onClick={handleClose}
-          className="w-full mt-6 py-3 bg-primary-600 hover:bg-primary-500 text-white font-semibold rounded-xl transition-colors"
+          className="w-full mt-6 py-3 bg-primary-500 hover:bg-primary-400 text-white font-bold font-display rounded-xl transition-colors shadow-lg shadow-primary-500/25"
         >
           Got it!
         </button>

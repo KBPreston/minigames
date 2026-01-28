@@ -30,20 +30,24 @@ export function GameOverOverlay({ gameId, finalScore, onPlayAgain }: GameOverOve
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm">
       <div className="bg-gray-800 rounded-2xl p-6 mx-4 max-w-sm w-full text-center animate-pop-in">
-        <h2 className="text-2xl font-bold mb-2">Game Over</h2>
+        <h2 className="text-2xl font-bold mb-2 font-display">Game Over</h2>
 
         {isNewBest && (
-          <div className="text-yellow-400 text-sm font-semibold mb-2 animate-pulse">
-            New Best Score!
+          <div className="mb-3">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-yellow-400/20 text-yellow-400 text-sm font-bold font-display animate-celebrate">
+              <span className="text-base">🎉</span>
+              New Best!
+              <span className="text-base">🎉</span>
+            </span>
           </div>
         )}
 
-        <div className="text-5xl font-bold mb-2 tabular-nums">
+        <div className={`text-5xl font-extrabold mb-2 tabular-nums font-display ${isNewBest ? 'text-yellow-400 animate-glow-pulse' : ''}`}>
           {finalScore.toLocaleString()}
         </div>
 
         {bestScore > 0 && !isNewBest && (
-          <div className="text-gray-400 text-sm mb-4">
+          <div className="text-gray-400 text-sm mb-4 font-display">
             Best: {bestScore.toLocaleString()}
           </div>
         )}
@@ -54,7 +58,7 @@ export function GameOverOverlay({ gameId, finalScore, onPlayAgain }: GameOverOve
               if (settings.sound) SoundEngine.uiClick();
               onPlayAgain();
             }}
-            className="w-full py-3 bg-primary-600 hover:bg-primary-500 text-white font-semibold rounded-xl active:scale-98 transition-all"
+            className="w-full py-3 bg-primary-500 hover:bg-primary-400 text-white font-bold font-display rounded-xl active:scale-[0.97] transition-all shadow-lg shadow-primary-500/25"
           >
             Play Again
           </button>

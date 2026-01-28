@@ -85,7 +85,7 @@ export function OptionsModal({ isOpen, onClose }: OptionsModalProps) {
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 pb-4">
-          <h2 className="text-xl font-bold">Options</h2>
+          <h2 className="text-xl font-bold font-display">Options</h2>
           <button
             onClick={handleClose}
             className="p-2 -m-2 text-gray-400 hover:text-white"

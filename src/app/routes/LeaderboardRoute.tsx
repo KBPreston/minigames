@@ -53,9 +53,9 @@ export function LeaderboardRoute() {
           </svg>
         </button>
         <div>
-          <h1 className="text-lg font-bold">{gameDef.name} Leaderboard</h1>
+          <h1 className="text-lg font-bold font-display">{gameDef.name} Leaderboard</h1>
           {userRank && (
-            <p className="text-sm text-yellow-400">Your rank: #{userRank}</p>
+            <p className="text-sm text-primary-400 font-display font-semibold">Your rank: #{userRank}</p>
           )}
         </div>
       </header>
@@ -86,7 +86,7 @@ export function LeaderboardRoute() {
                 <div
                   key={entry.uid}
                   className={`flex items-center gap-4 px-4 py-3 ${
-                    isCurrentUser ? 'bg-yellow-500/10' : ''
+                    isCurrentUser ? 'bg-primary-500/10' : ''
                   }`}
                 >
                   {/* Rank */}
@@ -105,18 +105,18 @@ export function LeaderboardRoute() {
                   {/* Name */}
                   <div className="flex-1 min-w-0">
                     <p
-                      className={`font-medium truncate ${
-                        isCurrentUser ? 'text-yellow-400' : 'text-white'
+                      className={`font-semibold truncate font-display ${
+                        isCurrentUser ? 'text-primary-400' : 'text-white'
                       }`}
                     >
                       {entry.playerName}
-                      {isCurrentUser && <span className="ml-2 text-xs">(You)</span>}
+                      {isCurrentUser && <span className="ml-2 text-xs opacity-70">(You)</span>}
                     </p>
                   </div>
 
                   {/* Score */}
                   <div className="text-right">
-                    <span className="font-bold tabular-nums">{entry.score.toLocaleString()}</span>
+                    <span className="font-bold tabular-nums font-display">{entry.score.toLocaleString()}</span>
                   </div>
                 </div>
               );

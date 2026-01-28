@@ -1,31 +1,28 @@
-// Board generation and space logic for Dice Risk
+// Board generation and space logic for Dice Risk v2 - Ring Board
 
-import { SpaceType, BoardSpace, SpaceEffect, SPACE_COLORS } from './types';
-
-const BOARD_SIZE = 35;
+import {
+  SpaceType,
+  BoardSpace,
+  SpaceEffect,
+  SPACE_COLORS,
+  getBoardSizeForLevel,
+} from './types';
 
 /**
- * Generate the 35-space board with strategic placement
- * Distribution:
- * - Normal: 14 (fill gaps)
- * - Bonus: 6 (+25/+50)
- * - Mult 2x: 4 (positions 8, 15, 22, 28)
- * - Mult 3x: 2 (positions 18, 30)
- * - Penalty: 4 (-20, near bonuses)
- * - Star: 2 (+100, positions 12, 26)
- * - Danger: 2 (-15%, positions 20, 31)
- * - Finish: 1 (+200, position 34)
+ * Generate a ring board for the given level
+ * Board is a square ring (Monopoly-style loop)
  */
-export function generateBoard(): BoardSpace[] {
+export function generateRingBoard(level: number): BoardSpace[] {
+  const boardSize = getBoardSizeForLevel(level);
   const board: BoardSpace[] = [];
 
   // Initialize all as normal
-  for (let i = 0; i < BOARD_SIZE; i++) {
+  for (let i = 0; i < boardSize; i++) {
     board.push({
       index: i,
       type: SpaceType.Normal,
-      points: 10,
-      label: '+10',
+      points: 10 * level, // Points scale with level
+      label: `+${10 * level}`,
     });
   }
 
@@ -37,47 +34,122 @@ export function generateBoard(): BoardSpace[] {
     label: 'START',
   };
 
-  // Finish (position 34)
-  board[34] = {
-    index: 34,
-    type: SpaceType.Finish,
-    points: 200,
-    label: '+200',
-  };
-
-  // Stars (+100) at positions 12, 26
-  board[12] = { index: 12, type: SpaceType.Star, points: 100, label: '+100' };
-  board[26] = { index: 26, type: SpaceType.Star, points: 100, label: '+100' };
-
-  // Mult 2x at positions 8, 15, 22, 28
-  board[8] = { index: 8, type: SpaceType.Mult2x, points: 0, label: '2x' };
-  board[15] = { index: 15, type: SpaceType.Mult2x, points: 0, label: '2x' };
-  board[22] = { index: 22, type: SpaceType.Mult2x, points: 0, label: '2x' };
-  board[28] = { index: 28, type: SpaceType.Mult2x, points: 0, label: '2x' };
-
-  // Mult 3x at positions 18, 30
-  board[18] = { index: 18, type: SpaceType.Mult3x, points: 0, label: '3x' };
-  board[30] = { index: 30, type: SpaceType.Mult3x, points: 0, label: '3x' };
-
-  // Danger (-15%) at positions 20, 31
-  board[20] = { index: 20, type: SpaceType.Danger, points: 15, label: '-15%' };
-  board[31] = { index: 31, type: SpaceType.Danger, points: 15, label: '-15%' };
-
-  // Bonuses at positions 4, 9, 14, 19, 24, 32
-  board[4] = { index: 4, type: SpaceType.Bonus, points: 25, label: '+25' };
-  board[9] = { index: 9, type: SpaceType.Bonus, points: 25, label: '+25' };
-  board[14] = { index: 14, type: SpaceType.Bonus, points: 50, label: '+50' };
-  board[19] = { index: 19, type: SpaceType.Bonus, points: 25, label: '+25' };
-  board[24] = { index: 24, type: SpaceType.Bonus, points: 50, label: '+50' };
-  board[32] = { index: 32, type: SpaceType.Bonus, points: 25, label: '+25' };
-
-  // Penalties at positions 5, 11, 21, 25 (near bonuses/stars)
-  board[5] = { index: 5, type: SpaceType.Penalty, points: -20, label: '-20' };
-  board[11] = { index: 11, type: SpaceType.Penalty, points: -20, label: '-20' };
-  board[21] = { index: 21, type: SpaceType.Penalty, points: -20, label: '-20' };
-  board[25] = { index: 25, type: SpaceType.Penalty, points: -20, label: '-20' };
+  // Place special spaces based on level and board size
+  placeSpecialSpaces(board, level, boardSize);
 
   return board;
+}
+
+/**
+ * Place special spaces on the board
+ * Distribution varies by level - more danger at higher levels
+ */
+function placeSpecialSpaces(board: BoardSpace[], level: number, boardSize: number): void {
+  // Calculate positions for special spaces
+  // Jackpot is always opposite start (halfway around)
+  const jackpotPos = Math.floor(boardSize / 2);
+
+  // Place jackpot
+  const jackpotPoints = 100 + level * 50;
+  board[jackpotPos] = {
+    index: jackpotPos,
+    type: SpaceType.Jackpot,
+    points: jackpotPoints,
+    diceChange: 2,
+    label: `+${jackpotPoints}`,
+  };
+
+  // Calculate number of special spaces based on board size
+  const numBonus = Math.floor(boardSize * 0.15); // ~15%
+  const numDice = Math.floor(boardSize * 0.15); // ~15%
+  const numMult = Math.floor(boardSize * 0.1); // ~10%
+  const numPenalty = Math.floor(boardSize * 0.1); // ~10%
+  const numDanger = Math.floor(boardSize * 0.1) + Math.min(level - 1, 3); // ~10% + level scaling
+
+  // Get available positions (exclude 0 and jackpot)
+  const availablePositions: number[] = [];
+  for (let i = 1; i < boardSize; i++) {
+    if (i !== jackpotPos) {
+      availablePositions.push(i);
+    }
+  }
+
+  // Shuffle available positions
+  shuffleArray(availablePositions);
+
+  let posIndex = 0;
+
+  // Place bonus spaces (+25/+50 points)
+  for (let i = 0; i < numBonus && posIndex < availablePositions.length; i++) {
+    const pos = availablePositions[posIndex++];
+    const points = i < numBonus / 2 ? 25 * level : 50 * level;
+    board[pos] = {
+      index: pos,
+      type: SpaceType.Bonus,
+      points,
+      label: `+${points}`,
+    };
+  }
+
+  // Place dice spaces (+1 to +3 dice)
+  for (let i = 0; i < numDice && posIndex < availablePositions.length; i++) {
+    const pos = availablePositions[posIndex++];
+    const diceGain = Math.min(1 + Math.floor(i / 2), 3);
+    board[pos] = {
+      index: pos,
+      type: SpaceType.Dice,
+      points: 0,
+      diceChange: diceGain,
+      label: `+${diceGain}D`,
+    };
+  }
+
+  // Place multiplier spaces
+  for (let i = 0; i < numMult && posIndex < availablePositions.length; i++) {
+    const pos = availablePositions[posIndex++];
+    const is3x = i >= numMult / 2;
+    board[pos] = {
+      index: pos,
+      type: is3x ? SpaceType.Mult3x : SpaceType.Mult2x,
+      points: 0,
+      label: is3x ? '3x' : '2x',
+    };
+  }
+
+  // Place penalty spaces (-20 points)
+  for (let i = 0; i < numPenalty && posIndex < availablePositions.length; i++) {
+    const pos = availablePositions[posIndex++];
+    const penalty = -20 * level;
+    board[pos] = {
+      index: pos,
+      type: SpaceType.Penalty,
+      points: penalty,
+      label: `${penalty}`,
+    };
+  }
+
+  // Place danger spaces (lose 1-2 dice)
+  for (let i = 0; i < numDanger && posIndex < availablePositions.length; i++) {
+    const pos = availablePositions[posIndex++];
+    const diceLoss = i < numDanger / 2 ? -1 : -2;
+    board[pos] = {
+      index: pos,
+      type: SpaceType.Danger,
+      points: 0,
+      diceChange: diceLoss,
+      label: `${diceLoss}D`,
+    };
+  }
+}
+
+/**
+ * Shuffle array in place (Fisher-Yates)
+ */
+function shuffleArray<T>(array: T[]): void {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
 }
 
 /**
@@ -91,12 +163,12 @@ export function getSpaceColor(type: SpaceType): string {
  * Calculate the effect of landing on a space
  * @param space The space landed on
  * @param roll The total dice roll value
- * @param currentScore Current player score (for danger percentage)
+ * @param level Current level (for multiplier scaling)
  */
 export function applySpaceEffect(
   space: BoardSpace,
   roll: number,
-  currentScore: number
+  level: number
 ): SpaceEffect {
   switch (space.type) {
     case SpaceType.Normal:
@@ -111,22 +183,24 @@ export function applySpaceEffect(
         points: space.points,
       };
 
-    case SpaceType.Star:
+    case SpaceType.Jackpot:
       return {
         type: space.type,
         points: space.points,
+        diceChange: space.diceChange,
       };
 
-    case SpaceType.Finish:
+    case SpaceType.Dice:
       return {
         type: space.type,
-        points: space.points,
+        points: 0,
+        diceChange: space.diceChange,
       };
 
     case SpaceType.Mult2x:
       return {
         type: space.type,
-        points: roll * 2,
+        points: roll * 2 * level,
         multiplier: 2,
         roll,
       };
@@ -134,7 +208,7 @@ export function applySpaceEffect(
     case SpaceType.Mult3x:
       return {
         type: space.type,
-        points: roll * 3,
+        points: roll * 3 * level,
         multiplier: 3,
         roll,
       };
@@ -146,11 +220,10 @@ export function applySpaceEffect(
       };
 
     case SpaceType.Danger:
-      // Lose 15% of current score
-      const loss = Math.floor(currentScore * (space.points / 100));
       return {
         type: space.type,
-        points: -loss,
+        points: 0,
+        diceChange: space.diceChange, // Negative value
       };
 
     default:
@@ -162,32 +235,73 @@ export function applySpaceEffect(
 }
 
 /**
- * Convert board index to serpentine grid position
- * Board is 7 columns wide, serpentine pattern
+ * Convert board index to ring position (x, y coordinates)
+ * Board is a square ring (perimeter only):
+ * For 20 spaces with gridSize=6:
+ *     0   1   2   3   4   5
+ *    19                   6
+ *    18                   7
+ *    17                   8
+ *    16                   9
+ *    15  14  13  12  11  10
  */
-export function indexToGridPosition(index: number): { row: number; col: number } {
-  const cols = 7;
-  const row = Math.floor(index / cols);
-  const isReversedRow = row % 2 === 1;
-  const colInRow = index % cols;
-  const col = isReversedRow ? cols - 1 - colInRow : colInRow;
+export function indexToRingPosition(
+  index: number,
+  boardSize: number
+): { x: number; y: number; side: 'top' | 'right' | 'bottom' | 'left' } {
+  // For a square ring: perimeter = 4 * gridSize - 4 (corners counted once)
+  // So gridSize = (boardSize + 4) / 4
+  const gridSize = (boardSize + 4) / 4;
 
-  return { row, col };
+  // Top side: indices 0 to gridSize-1
+  if (index < gridSize) {
+    return { x: index, y: 0, side: 'top' };
+  }
+
+  // Right side: indices gridSize to gridSize + (gridSize-2)
+  // (gridSize-2 because top-right and bottom-right corners belong to top/bottom)
+  const rightStart = gridSize;
+  const rightCount = gridSize - 2;
+  if (index < rightStart + rightCount) {
+    const offset = index - rightStart;
+    return { x: gridSize - 1, y: offset + 1, side: 'right' };
+  }
+
+  // Bottom side: indices after right, going right-to-left
+  const bottomStart = rightStart + rightCount;
+  if (index < bottomStart + gridSize) {
+    const offset = index - bottomStart;
+    return { x: gridSize - 1 - offset, y: gridSize - 1, side: 'bottom' };
+  }
+
+  // Left side: remaining indices, going bottom-to-top
+  const leftStart = bottomStart + gridSize;
+  const offset = index - leftStart;
+  return { x: 0, y: gridSize - 2 - offset, side: 'left' };
 }
 
 /**
- * Get the pixel position for a space on the board
+ * Get the pixel position for a space on the ring board
  */
 export function getSpacePosition(
   index: number,
-  cellWidth: number,
-  cellHeight: number,
+  boardSize: number,
+  cellSize: number,
   offsetX: number,
   offsetY: number
 ): { x: number; y: number } {
-  const { row, col } = indexToGridPosition(index);
+  const { x, y } = indexToRingPosition(index, boardSize);
   return {
-    x: offsetX + col * cellWidth + cellWidth / 2,
-    y: offsetY + row * cellHeight + cellHeight / 2,
+    x: offsetX + x * cellSize + cellSize / 2,
+    y: offsetY + y * cellSize + cellSize / 2,
   };
+}
+
+/**
+ * Get the grid dimensions for a board size
+ * For a square ring: perimeter = 4 * gridSize - 4
+ * So gridSize = (boardSize + 4) / 4
+ */
+export function getRingGridSize(boardSize: number): number {
+  return (boardSize + 4) / 4;
 }

@@ -59,7 +59,7 @@ export function Menu() {
       <header className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Mini Games</h1>
+            <h1 className="text-2xl font-extrabold font-display tracking-tight">Mini Games</h1>
             <p className="text-sm text-gray-400">Choose a game to play</p>
           </div>
           <button
@@ -88,13 +88,14 @@ export function Menu() {
       {/* Game Grid */}
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         <div className="grid grid-cols-2 gap-3">
-          {games.map((game) => (
+          {games.map((game, index) => (
             <GameCard
               key={game.id}
               game={game}
               rank={ranks[game.id]}
               topScore={topScores[game.id]}
               isLoadingRank={loadingRanks && !game.disabled}
+              animationIndex={index}
             />
           ))}
         </div>

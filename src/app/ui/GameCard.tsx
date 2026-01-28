@@ -14,9 +14,10 @@ interface GameCardProps {
   rank?: number | null;
   topScore?: TopScore | null;
   isLoadingRank?: boolean;
+  animationIndex?: number;
 }
 
-export function GameCard({ game, rank, topScore, isLoadingRank }: GameCardProps) {
+export function GameCard({ game, rank, topScore, isLoadingRank, animationIndex = 0 }: GameCardProps) {
   const navigate = useNavigate();
   const { settings } = useSettings();
   const bestScore = Storage.getBestScore(game.id);
@@ -38,22 +39,24 @@ export function GameCard({ game, rank, topScore, isLoadingRank }: GameCardProps)
 
   const isTopPlayer = rank === 1 && bestScore > 0;
 
+  const staggerClass = `stagger-${Math.min(animationIndex + 1, 8)}`;
+
   return (
     <div
       onClick={handlePlay}
-      className={`relative bg-gray-700/50 rounded-2xl p-4 transition-all flex flex-col ${
+      className={`relative rounded-2xl p-4 transition-all flex flex-col animate-fade-up ${staggerClass} ${
         game.disabled
-          ? 'opacity-50 cursor-not-allowed'
-          : 'hover:bg-gray-700 active:scale-98 cursor-pointer'
+          ? 'opacity-50 cursor-not-allowed bg-gray-700/30'
+          : 'bg-white/[0.06] border border-white/[0.08] shadow-lg hover:bg-white/[0.1] hover:border-white/[0.12] active:scale-[0.97] cursor-pointer'
       }`}
     >
       {/* Header: Icon + Name */}
       <div className="flex items-start gap-3 mb-3">
         <div className="text-3xl">{game.icon}</div>
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-base leading-tight">{game.name}</h3>
+          <h3 className="font-bold text-base leading-tight font-display">{game.name}</h3>
           {!game.disabled && bestScore > 0 && (
-            <div className="text-xs text-gray-400 mt-0.5">
+            <div className="text-xs text-gray-400 mt-0.5 font-display font-semibold tabular-nums">
               {bestScore.toLocaleString()} pts
             </div>
           )}
