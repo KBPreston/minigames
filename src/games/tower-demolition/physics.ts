@@ -1,9 +1,10 @@
 import { Block, GRAVITY, BLOCK_PROPERTIES } from './types';
 
-const FRICTION = 0.3; // Lower = more friction = less sliding
-const BOUNCE = 0.2;
-const SETTLE_THRESHOLD = 8; // Velocity threshold for settling
-const ROTATION_DAMPING = 0.85;
+const GROUND_FRICTION = 0.05; // Almost instant stop on ground
+const AIR_DRAG = 0.98; // Slight air resistance
+const BOUNCE = 0.15;
+const SETTLE_THRESHOLD = 5;
+const ROTATION_DAMPING = 0.92;
 
 export interface PhysicsWorld {
   groundY: number;
@@ -19,11 +20,14 @@ export function updatePhysics(blocks: Block[], dt: number, world: PhysicsWorld):
     // Apply gravity
     block.vy += GRAVITY * dt;
 
+    // Air drag on horizontal movement (slows down quickly)
+    block.vx *= AIR_DRAG;
+
     // Update position
     block.x += block.vx * dt;
     block.y += block.vy * dt;
 
-    // Update rotation
+    // Update rotation - tumbling!
     block.rotation += block.rotationVel * dt;
     block.rotationVel *= ROTATION_DAMPING;
 
@@ -32,26 +36,34 @@ export function updatePhysics(blocks: Block[], dt: number, world: PhysicsWorld):
     if (blockBottom > world.groundY) {
       block.y = world.groundY - block.height;
       block.vy = -block.vy * BOUNCE;
-      block.vx *= FRICTION;
-      block.rotationVel *= 0.5;
+
+      // Kill horizontal velocity on ground - no sliding!
+      block.vx *= GROUND_FRICTION;
+
+      // Convert some impact into tumble rotation
+      if (Math.abs(block.vy) > 20) {
+        block.rotationVel += (Math.random() - 0.5) * 2;
+      }
+      block.rotationVel *= 0.7;
 
       // Check if settled
       if (Math.abs(block.vy) < SETTLE_THRESHOLD && Math.abs(block.vx) < SETTLE_THRESHOLD) {
         block.vy = 0;
         block.vx = 0;
         block.rotationVel = 0;
+        block.rotation = 0; // Reset rotation when settled
         block.settled = true;
       }
     }
 
-    // Wall collisions
+    // Wall collisions - just stop, don't bounce sideways
     if (block.x < world.leftWall) {
       block.x = world.leftWall;
-      block.vx = -block.vx * BOUNCE;
+      block.vx = 0;
     }
     if (block.x + block.width > world.rightWall) {
       block.x = world.rightWall - block.width;
-      block.vx = -block.vx * BOUNCE;
+      block.vx = 0;
     }
 
     // Unsettle if moving
@@ -61,10 +73,10 @@ export function updatePhysics(blocks: Block[], dt: number, world: PhysicsWorld):
   }
 
   // Block-to-block collisions
-  resolveBlockCollisions(blocks);
+  resolveBlockCollisions(blocks, world);
 }
 
-function resolveBlockCollisions(blocks: Block[]): void {
+function resolveBlockCollisions(blocks: Block[], world: PhysicsWorld): void {
   const activeBlocks = blocks.filter(b => !b.destroyed);
 
   for (let i = 0; i < activeBlocks.length; i++) {
@@ -77,14 +89,15 @@ function resolveBlockCollisions(blocks: Block[]): void {
       const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
 
       if (overlapX > 0 && overlapY > 0) {
-        // Collision detected - resolve by pushing apart
         const weightA = BLOCK_PROPERTIES[a.type].weight;
         const weightB = BLOCK_PROPERTIES[b.type].weight;
         const totalWeight = weightA + weightB;
 
-        // Determine push direction (smallest overlap)
+        // Determine which block is on top
+        const aOnTop = a.y + a.height / 2 < b.y + b.height / 2;
+
         if (overlapX < overlapY) {
-          // Push horizontally
+          // Side collision - just push apart, minimal velocity transfer
           const pushDir = a.x < b.x ? -1 : 1;
           const pushA = (overlapX * weightB / totalWeight) * pushDir;
           const pushB = (overlapX * weightA / totalWeight) * -pushDir;
@@ -92,12 +105,15 @@ function resolveBlockCollisions(blocks: Block[]): void {
           a.x += pushA;
           b.x += pushB;
 
-          // Exchange some velocity
-          const avgVx = (a.vx * weightA + b.vx * weightB) / totalWeight;
-          a.vx = avgVx + pushDir * 20;
-          b.vx = avgVx - pushDir * 20;
+          // No horizontal velocity exchange - just stop
+          a.vx *= 0.3;
+          b.vx *= 0.3;
+
+          // Add tumble rotation instead
+          a.rotationVel += pushDir * 1.5;
+          b.rotationVel -= pushDir * 1.5;
         } else {
-          // Push vertically
+          // Vertical collision - stacking
           const pushDir = a.y < b.y ? -1 : 1;
           const pushA = (overlapY * weightB / totalWeight) * pushDir;
           const pushB = (overlapY * weightA / totalWeight) * -pushDir;
@@ -105,23 +121,26 @@ function resolveBlockCollisions(blocks: Block[]): void {
           a.y += pushA;
           b.y += pushB;
 
-          // Block on top gets support
-          if (a.y < b.y) {
-            a.vy = Math.min(a.vy, b.vy);
-            if (b.settled) {
-              a.vy *= FRICTION;
+          // Block on top lands on bottom block
+          if (aOnTop) {
+            // A is on top of B
+            if (b.settled || b.y + b.height >= world.groundY - 5) {
+              // B is grounded, A should stop falling
+              a.vy = Math.min(a.vy, 0);
+              a.vx *= 0.2; // Stop sliding on top of other blocks too
             }
           } else {
-            b.vy = Math.min(b.vy, a.vy);
-            if (a.settled) {
-              b.vy *= FRICTION;
+            // B is on top of A
+            if (a.settled || a.y + a.height >= world.groundY - 5) {
+              b.vy = Math.min(b.vy, 0);
+              b.vx *= 0.2;
             }
           }
-        }
 
-        // Add some rotation from collision
-        a.rotationVel += (Math.random() - 0.5) * 0.5;
-        b.rotationVel += (Math.random() - 0.5) * 0.5;
+          // Small tumble from landing
+          a.rotationVel += (Math.random() - 0.5) * 0.8;
+          b.rotationVel += (Math.random() - 0.5) * 0.8;
+        }
       }
     }
   }
@@ -134,38 +153,36 @@ export function applyExplosion(
   explosionY: number,
   radius: number,
   force: number,
-  destroyRadius: number = 0.6 // Multiplier of radius where blocks are destroyed
+  destroyRadius: number = 0.6
 ): Block[] {
   const destroyed: Block[] = [];
 
   for (const block of blocks) {
     if (block.destroyed) continue;
 
-    // Get block center
     const blockCenterX = block.x + block.width / 2;
     const blockCenterY = block.y + block.height / 2;
 
-    // Distance from explosion
     const dx = blockCenterX - explosionX;
     const dy = blockCenterY - explosionY;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    // Check if in explosion radius
     const blockRadius = Math.max(block.width, block.height) / 2;
     if (dist < radius + blockRadius) {
-      // Direct hit - destroy block
       if (dist < radius * destroyRadius) {
         block.destroyed = true;
         destroyed.push(block);
       } else {
-        // Apply force - stronger closer to center
         const strength = 1 - (dist / (radius + blockRadius));
         const normalizedDx = dx / (dist || 1);
         const normalizedDy = dy / (dist || 1);
 
-        block.vx += normalizedDx * force * strength;
-        block.vy += normalizedDy * force * strength - 80; // Slight upward boost
-        block.rotationVel += (Math.random() - 0.5) * strength * 6;
+        // Mostly upward force, reduced horizontal
+        block.vx += normalizedDx * force * strength * 0.4; // Reduced horizontal
+        block.vy += normalizedDy * force * strength - 120; // Strong upward
+
+        // More tumble rotation from explosions
+        block.rotationVel += (Math.random() - 0.5) * strength * 10;
         block.settled = false;
       }
     }
@@ -184,7 +201,6 @@ export function calculateTowerDestruction(blocks: Block[], groundY: number): num
   const activeBlocks = blocks.filter(b => !b.destroyed);
   if (activeBlocks.length === 0) return 1;
 
-  // Count blocks that have fallen to ground level
   const fallenBlocks = activeBlocks.filter(b => {
     return b.y + b.height >= groundY - 5;
   });
