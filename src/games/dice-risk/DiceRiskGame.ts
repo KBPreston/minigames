@@ -121,18 +121,20 @@ export class DiceRiskGame implements GameInstance {
     const y = e.clientY - rect.top;
 
     // Check if clicking on dice buttons (only in Idle phase)
-    if (this.phase === GamePhase.Idle && y >= this.buttonY) {
-      const buttonWidth = rect.width / 3;
-      const buttonIndex = Math.floor(x / buttonWidth);
-
-      if (buttonIndex >= 0 && buttonIndex < 3) {
-        this.selectDice(buttonIndex + 1);
+    if (this.phase === GamePhase.Idle && y >= this.buttonY + 10 && y <= this.buttonY + 10 + this.buttonHeight) {
+      const buttonWidth = rect.width / 3 - 16;
+      for (let i = 0; i < 3; i++) {
+        const buttonX = 8 + i * (buttonWidth + 16);
+        if (x >= buttonX && x <= buttonX + buttonWidth) {
+          this.selectDice(i + 1);
+          break;
+        }
       }
     }
   };
 
   private selectDice(count: number) {
-    if (this.phase !== GamePhase.Idle) return;
+    if (this.phase !== GamePhase.Idle || this.position >= BOARD_SIZE - 1) return;
 
     this.selectedDice = count;
     this.api.haptics.tap();
@@ -196,6 +198,12 @@ export class DiceRiskGame implements GameInstance {
   private startMoving() {
     this.phase = GamePhase.Moving;
     const targetPosition = Math.min(this.position + this.lastRoll, BOARD_SIZE - 1);
+
+    // Edge case: already at finish
+    if (targetPosition === this.position) {
+      this.applyLandingEffect();
+      return;
+    }
 
     this.moveAnimation = {
       startTime: performance.now(),
@@ -361,7 +369,7 @@ export class DiceRiskGame implements GameInstance {
   };
 
   private render() {
-    if (this.isDestroyed) return;
+    if (this.isDestroyed || this.board.length === 0) return;
 
     const rect = this.container.getBoundingClientRect();
     const { ctx } = this;
