@@ -1,10 +1,11 @@
-import { Block, GRAVITY, BLOCK_PROPERTIES } from './types';
+import { Block, GRAVITY, BLOCK_PROPERTIES, BlockType } from './types';
 
-const GROUND_FRICTION = 0.05; // Almost instant stop on ground
-const AIR_DRAG = 0.98; // Slight air resistance
-const BOUNCE = 0.15;
-const SETTLE_THRESHOLD = 5;
+const GROUND_FRICTION = 0.05;
+const AIR_DRAG = 0.98;
+const BOUNCE = 0.1;
+const SETTLE_THRESHOLD = 3;
 const ROTATION_DAMPING = 0.92;
+const CRUSH_VELOCITY = 100; // Velocity needed for heavy block to crush light block
 
 export interface PhysicsWorld {
   groundY: number;
@@ -12,7 +13,15 @@ export interface PhysicsWorld {
   rightWall: number;
 }
 
-// Apply gravity and update positions
+// Track blocks that get crushed this frame
+let crushedBlocks: Block[] = [];
+
+export function getCrushedBlocks(): Block[] {
+  const result = crushedBlocks;
+  crushedBlocks = [];
+  return result;
+}
+
 export function updatePhysics(blocks: Block[], dt: number, world: PhysicsWorld): void {
   for (const block of blocks) {
     if (block.destroyed) continue;
@@ -20,14 +29,14 @@ export function updatePhysics(blocks: Block[], dt: number, world: PhysicsWorld):
     // Apply gravity
     block.vy += GRAVITY * dt;
 
-    // Air drag on horizontal movement (slows down quickly)
+    // Air drag on horizontal movement
     block.vx *= AIR_DRAG;
 
     // Update position
     block.x += block.vx * dt;
     block.y += block.vy * dt;
 
-    // Update rotation - tumbling!
+    // Update rotation
     block.rotation += block.rotationVel * dt;
     block.rotationVel *= ROTATION_DAMPING;
 
@@ -35,28 +44,30 @@ export function updatePhysics(blocks: Block[], dt: number, world: PhysicsWorld):
     const blockBottom = block.y + block.height;
     if (blockBottom > world.groundY) {
       block.y = world.groundY - block.height;
-      block.vy = -block.vy * BOUNCE;
 
-      // Kill horizontal velocity on ground - no sliding!
-      block.vx *= GROUND_FRICTION;
-
-      // Convert some impact into tumble rotation
+      // Only bounce if moving fast enough
       if (Math.abs(block.vy) > 20) {
-        block.rotationVel += (Math.random() - 0.5) * 2;
+        block.vy = -block.vy * BOUNCE;
+        block.rotationVel += (Math.random() - 0.5) * 1.5;
+      } else {
+        block.vy = 0;
       }
-      block.rotationVel *= 0.7;
+
+      // Kill horizontal velocity on ground
+      block.vx *= GROUND_FRICTION;
+      block.rotationVel *= 0.5;
 
       // Check if settled
       if (Math.abs(block.vy) < SETTLE_THRESHOLD && Math.abs(block.vx) < SETTLE_THRESHOLD) {
         block.vy = 0;
         block.vx = 0;
         block.rotationVel = 0;
-        block.rotation = 0; // Reset rotation when settled
+        block.rotation = 0;
         block.settled = true;
       }
     }
 
-    // Wall collisions - just stop, don't bounce sideways
+    // Wall collisions
     if (block.x < world.leftWall) {
       block.x = world.leftWall;
       block.vx = 0;
@@ -79,10 +90,15 @@ export function updatePhysics(blocks: Block[], dt: number, world: PhysicsWorld):
 function resolveBlockCollisions(blocks: Block[], world: PhysicsWorld): void {
   const activeBlocks = blocks.filter(b => !b.destroyed);
 
+  // Sort by Y position - process from bottom to top for stability
+  activeBlocks.sort((a, b) => (b.y + b.height) - (a.y + a.height));
+
   for (let i = 0; i < activeBlocks.length; i++) {
     for (let j = i + 1; j < activeBlocks.length; j++) {
       const a = activeBlocks[i];
       const b = activeBlocks[j];
+
+      if (a.destroyed || b.destroyed) continue;
 
       // AABB overlap check
       const overlapX = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
@@ -94,59 +110,94 @@ function resolveBlockCollisions(blocks: Block[], world: PhysicsWorld): void {
         const totalWeight = weightA + weightB;
 
         // Determine which block is on top
-        const aOnTop = a.y + a.height / 2 < b.y + b.height / 2;
+        const aCenterY = a.y + a.height / 2;
+        const bCenterY = b.y + b.height / 2;
+        const aOnTop = aCenterY < bCenterY;
 
-        if (overlapX < overlapY) {
-          // Side collision - just push apart, minimal velocity transfer
-          const pushDir = a.x < b.x ? -1 : 1;
-          const pushA = (overlapX * weightB / totalWeight) * pushDir;
-          const pushB = (overlapX * weightA / totalWeight) * -pushDir;
+        // Check for crushing - heavy block landing on light block
+        if (overlapY < overlapX) {
+          // Vertical collision
+          const topBlock = aOnTop ? a : b;
+          const bottomBlock = aOnTop ? b : a;
+          const topWeight = BLOCK_PROPERTIES[topBlock.type].weight;
+          const bottomWeight = BLOCK_PROPERTIES[bottomBlock.type].weight;
 
-          a.x += pushA;
-          b.x += pushB;
-
-          // No horizontal velocity exchange - just stop
-          a.vx *= 0.3;
-          b.vx *= 0.3;
-
-          // Add tumble rotation instead
-          a.rotationVel += pushDir * 1.5;
-          b.rotationVel -= pushDir * 1.5;
-        } else {
-          // Vertical collision - stacking
-          const pushDir = a.y < b.y ? -1 : 1;
-          const pushA = (overlapY * weightB / totalWeight) * pushDir;
-          const pushB = (overlapY * weightA / totalWeight) * -pushDir;
-
-          a.y += pushA;
-          b.y += pushB;
-
-          // Block on top lands on bottom block
-          if (aOnTop) {
-            // A is on top of B
-            if (b.settled || b.y + b.height >= world.groundY - 5) {
-              // B is grounded, A should stop falling
-              a.vy = Math.min(a.vy, 0);
-              a.vx *= 0.2; // Stop sliding on top of other blocks too
-            }
-          } else {
-            // B is on top of A
-            if (a.settled || a.y + a.height >= world.groundY - 5) {
-              b.vy = Math.min(b.vy, 0);
-              b.vx *= 0.2;
+          // Heavy block falling fast onto lighter block = crush
+          if (topWeight > bottomWeight && topBlock.vy > CRUSH_VELOCITY) {
+            // Stone crushes wood, steel crushes stone and wood
+            if ((topBlock.type === BlockType.Stone && bottomBlock.type === BlockType.Wood) ||
+                (topBlock.type === BlockType.Steel && bottomBlock.type !== BlockType.Steel)) {
+              bottomBlock.destroyed = true;
+              crushedBlocks.push(bottomBlock);
+              topBlock.vy *= 0.5; // Slow down after crushing
+              continue;
             }
           }
+        }
 
-          // Small tumble from landing
-          a.rotationVel += (Math.random() - 0.5) * 0.8;
-          b.rotationVel += (Math.random() - 0.5) * 0.8;
+        // Resolve collision - push apart
+        if (overlapX < overlapY) {
+          // Side collision - push horizontally
+          const pushDir = a.x < b.x ? -1 : 1;
+
+          // Push proportional to weight
+          a.x += pushDir * overlapX * (weightB / totalWeight);
+          b.x -= pushDir * overlapX * (weightA / totalWeight);
+
+          // Kill horizontal velocity
+          a.vx *= 0.2;
+          b.vx *= 0.2;
+
+          // Add tumble
+          a.rotationVel += pushDir * 1.0;
+          b.rotationVel -= pushDir * 1.0;
+        } else {
+          // Vertical collision - stacking
+          const topBlock = aOnTop ? a : b;
+          const bottomBlock = aOnTop ? b : a;
+
+          // Push top block up out of bottom block
+          topBlock.y = bottomBlock.y - topBlock.height - 0.5;
+
+          // If bottom block is stable, top block should stop
+          const bottomIsStable = bottomBlock.settled ||
+            bottomBlock.y + bottomBlock.height >= world.groundY - 2;
+
+          if (bottomIsStable) {
+            // Stop vertical movement
+            if (topBlock.vy > 0) {
+              // Landing - small bounce or just stop
+              if (topBlock.vy > 30) {
+                topBlock.vy = -topBlock.vy * BOUNCE;
+                topBlock.rotationVel += (Math.random() - 0.5) * 1.0;
+              } else {
+                topBlock.vy = 0;
+              }
+            }
+
+            // Stop horizontal sliding on stable blocks
+            topBlock.vx *= 0.1;
+
+            // Check if top block is now settled
+            if (Math.abs(topBlock.vy) < SETTLE_THRESHOLD && Math.abs(topBlock.vx) < SETTLE_THRESHOLD) {
+              topBlock.vy = 0;
+              topBlock.vx = 0;
+              topBlock.rotationVel = 0;
+              topBlock.rotation = 0;
+              topBlock.settled = true;
+            }
+          } else {
+            // Both blocks moving - transfer some momentum
+            const avgVy = (topBlock.vy + bottomBlock.vy) / 2;
+            topBlock.vy = avgVy;
+            bottomBlock.vy = avgVy;
+          }
         }
       }
     }
   }
 }
 
-// Apply explosion force to blocks
 export function applyExplosion(
   blocks: Block[],
   explosionX: number,
@@ -177,11 +228,11 @@ export function applyExplosion(
         const normalizedDx = dx / (dist || 1);
         const normalizedDy = dy / (dist || 1);
 
-        // Mostly upward force, reduced horizontal
-        block.vx += normalizedDx * force * strength * 0.4; // Reduced horizontal
-        block.vy += normalizedDy * force * strength - 120; // Strong upward
+        // Mostly upward force
+        block.vx += normalizedDx * force * strength * 0.4;
+        block.vy += normalizedDy * force * strength - 120;
 
-        // More tumble rotation from explosions
+        // Tumble
         block.rotationVel += (Math.random() - 0.5) * strength * 10;
         block.settled = false;
       }
@@ -191,12 +242,10 @@ export function applyExplosion(
   return destroyed;
 }
 
-// Check if all blocks have settled
 export function allBlocksSettled(blocks: Block[]): boolean {
   return blocks.filter(b => !b.destroyed).every(b => b.settled);
 }
 
-// Check if tower is "destroyed" (most blocks fallen/destroyed)
 export function calculateTowerDestruction(blocks: Block[], groundY: number): number {
   const activeBlocks = blocks.filter(b => !b.destroyed);
   if (activeBlocks.length === 0) return 1;

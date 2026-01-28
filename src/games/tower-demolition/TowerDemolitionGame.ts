@@ -8,7 +8,7 @@ import {
   BOMBS_PER_LEVEL,
   EXPLOSION_DURATION,
 } from './types';
-import { updatePhysics, applyExplosion, PhysicsWorld } from './physics';
+import { updatePhysics, applyExplosion, PhysicsWorld, getCrushedBlocks } from './physics';
 import { generateTower, getActiveBlockCount, isTowerCleared } from './towers';
 import {
   Particle,
@@ -571,22 +571,63 @@ export class TowerDemolitionGame implements GameInstance {
   };
 
   private updatePhysicsWithGroundDestruction(dt: number) {
-    const activeBlocks = this.blocks.filter(b => !b.destroyed);
+    // Track blocks that were above ground before physics update
+    const blockStates = new Map<number, { wasAboveGround: boolean; previousVy: number }>();
+    for (const block of this.blocks) {
+      if (!block.destroyed) {
+        blockStates.set(block.id, {
+          wasAboveGround: block.y + block.height < this.world.groundY - 5,
+          previousVy: block.vy,
+        });
+      }
+    }
 
-    for (const block of activeBlocks) {
-      const wasAboveGround = block.y + block.height < this.world.groundY - 5;
-      const previousVy = block.vy;
+    // Run physics (handles collisions and crushing)
+    updatePhysics(this.blocks, dt, this.world);
 
-      updatePhysics([block], dt, this.world);
+    // Handle crushed blocks (heavy blocks landing on light blocks)
+    const crushed = getCrushedBlocks();
+    for (const block of crushed) {
+      const cx = block.x + block.width / 2;
+      const cy = block.y + block.height / 2;
+      const color = BLOCK_PROPERTIES[block.type].color;
+
+      // Crushing particles - splat effect
+      this.particles.push(...generateParticlesAt(cx, cy, color, 10));
+      for (let i = 0; i < 6; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 40 + Math.random() * 80;
+        this.dustParticles.push({
+          x: cx,
+          y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1,
+          decay: 0.025,
+          color,
+          size: 4 + Math.random() * 4,
+        });
+      }
+
+      this.awardPoints(1, cx, cy, false);
+      this.shakeIntensity = Math.max(this.shakeIntensity, 2);
+    }
+
+    // Check for ground impacts and off-screen blocks
+    for (const block of this.blocks) {
+      if (block.destroyed) continue;
+
+      const state = blockStates.get(block.id);
+      if (!state) continue;
 
       const nowAtGround = block.y + block.height >= this.world.groundY - 5;
-      const hitGroundHard = wasAboveGround && nowAtGround && Math.abs(previousVy) > GROUND_IMPACT_VELOCITY;
+      const hitGroundHard = state.wasAboveGround && nowAtGround && Math.abs(state.previousVy) > GROUND_IMPACT_VELOCITY;
 
       const fellOffSide = block.x + block.width < this.world.leftWall - 50 ||
                           block.x > this.world.rightWall + 50;
       const fellBelow = block.y > this.world.groundY + 100;
 
-      if ((hitGroundHard || fellOffSide || fellBelow) && !block.destroyed) {
+      if (hitGroundHard || fellOffSide || fellBelow) {
         block.destroyed = true;
 
         const cx = block.x + block.width / 2;
@@ -597,28 +638,26 @@ export class TowerDemolitionGame implements GameInstance {
 
         if (hitGroundHard) {
           // Ground dust cloud
-          for (let i = 0; i < 8; i++) {
+          for (let i = 0; i < 6; i++) {
             const angle = Math.PI + (Math.random() - 0.5) * Math.PI;
-            const speed = 30 + Math.random() * 60;
+            const speed = 30 + Math.random() * 50;
             this.dustParticles.push({
               x: cx + (Math.random() - 0.5) * block.width,
               y: this.world.groundY - 5,
               vx: Math.cos(angle) * speed,
               vy: -Math.abs(Math.sin(angle) * speed) - 20,
               life: 1,
-              decay: 0.02,
+              decay: 0.025,
               color: '#6b7280',
-              size: 5 + Math.random() * 5,
+              size: 4 + Math.random() * 4,
             });
           }
-          this.shakeIntensity = Math.max(this.shakeIntensity, 3);
+          this.shakeIntensity = Math.max(this.shakeIntensity, 2);
         }
 
         this.awardPoints(1, cx, cy, false);
       }
     }
-
-    updatePhysics(this.blocks, dt, this.world);
   }
 
   private checkSettled(): boolean {
