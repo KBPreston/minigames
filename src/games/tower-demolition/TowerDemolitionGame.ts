@@ -37,6 +37,7 @@ interface BombSlot {
 }
 
 const GROUND_IMPACT_VELOCITY = 70;
+const BOMB_COOLDOWN = 400; // ms between bomb placements
 
 // Local dust particle type for smoke/dust effects
 interface DustParticle {
@@ -77,12 +78,14 @@ export class TowerDemolitionGame implements GameInstance {
   private aimX: number = 0;
   private aimY: number = 0;
   private isValidAim: boolean = false;
+  private wasSettling: boolean = false; // Track if we started aiming during settling
 
   // Settling and combo tracking
   private settleStartTime: number = 0;
   private readonly MAX_SETTLE_TIME = 5000;
   private blocksDestroyedThisTurn: number = 0;
   private currentCombo: number = 0;
+  private lastBombTime: number = 0;
 
   // Screen shake
   private shakeIntensity: number = 0;
@@ -208,8 +211,9 @@ export class TowerDemolitionGame implements GameInstance {
 
   private handleTouchStart = (e: TouchEvent) => {
     if (this.isPaused) return;
-    if (this.gameState !== GameState.Ready) return;
+    if (this.gameState !== GameState.Ready && this.gameState !== GameState.Settling) return;
     if (this.getBombsRemaining() <= 0) return;
+    if (performance.now() - this.lastBombTime < BOMB_COOLDOWN) return;
     e.preventDefault();
 
     const pos = this.getPosition(e.touches[0].clientX, e.touches[0].clientY);
@@ -232,8 +236,9 @@ export class TowerDemolitionGame implements GameInstance {
 
   private handleMouseDown = (e: MouseEvent) => {
     if (this.isPaused) return;
-    if (this.gameState !== GameState.Ready) return;
+    if (this.gameState !== GameState.Ready && this.gameState !== GameState.Settling) return;
     if (this.getBombsRemaining() <= 0) return;
+    if (performance.now() - this.lastBombTime < BOMB_COOLDOWN) return;
 
     const pos = this.getPosition(e.clientX, e.clientY);
     this.startAiming(pos.x, pos.y);
@@ -252,6 +257,7 @@ export class TowerDemolitionGame implements GameInstance {
   };
 
   private startAiming(x: number, y: number) {
+    this.wasSettling = this.gameState === GameState.Settling;
     this.gameState = GameState.Aiming;
     this.updateAiming(x, y);
     this.api.sounds.select();
@@ -282,7 +288,8 @@ export class TowerDemolitionGame implements GameInstance {
     if (!this.isValidAim) {
       this.floatingTexts.push(createFloatingText(this.aimX, this.aimY, 'Place near tower!', '#f87171', 14));
       this.api.sounds.invalid();
-      this.gameState = GameState.Ready;
+      // Return to previous state
+      this.gameState = this.wasSettling ? GameState.Settling : GameState.Ready;
       this.startGameLoop();
       return;
     }
@@ -295,6 +302,7 @@ export class TowerDemolitionGame implements GameInstance {
     if (!bomb) return;
 
     bomb.used = true;
+    this.lastBombTime = performance.now();
     this.gameState = GameState.Exploding;
     this.blocksDestroyedThisTurn = 0;
     this.currentCombo = 0;
@@ -1053,7 +1061,7 @@ export class TowerDemolitionGame implements GameInstance {
         this.drawBombIcon(x, bombY, bomb.type, false);
 
         // Current bomb indicator
-        if (i === this.currentBombIndex && this.gameState === GameState.Ready) {
+        if (i === this.currentBombIndex && (this.gameState === GameState.Ready || this.gameState === GameState.Settling)) {
           ctx.strokeStyle = '#22c55e';
           ctx.lineWidth = 2;
           ctx.beginPath();
@@ -1101,7 +1109,7 @@ export class TowerDemolitionGame implements GameInstance {
 
     // Current bomb name
     const currentBomb = this.getCurrentBomb();
-    if (currentBomb && this.gameState === GameState.Ready) {
+    if (currentBomb && (this.gameState === GameState.Ready || this.gameState === GameState.Settling)) {
       const props = BOMB_PROPERTIES[currentBomb.type];
       ctx.fillStyle = props.secondaryColor;
       ctx.font = 'bold 12px system-ui, sans-serif';
@@ -1110,7 +1118,7 @@ export class TowerDemolitionGame implements GameInstance {
     }
 
     // Instructions
-    if (this.gameState === GameState.Ready && this.getBombsRemaining() > 0) {
+    if ((this.gameState === GameState.Ready || this.gameState === GameState.Settling) && this.getBombsRemaining() > 0) {
       ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
       ctx.font = '12px system-ui, sans-serif';
       ctx.textAlign = 'center';
@@ -1120,11 +1128,6 @@ export class TowerDemolitionGame implements GameInstance {
       ctx.font = 'bold 12px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(this.isValidAim ? 'Release to detonate!' : 'Move closer to tower', rect.width / 2, 50);
-    } else if (this.gameState === GameState.Settling) {
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
-      ctx.font = '12px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Settling...', rect.width / 2, 50);
     }
   }
 
