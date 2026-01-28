@@ -8,6 +8,17 @@ interface GameInfoModalProps {
 }
 
 const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
+  'dice-risk': {
+    title: 'Dice Risk',
+    rules: [
+      'Choose 1, 2, or 3 dice to roll each turn',
+      'Fewer dice = precision, more dice = speed',
+      'Green bonus and gold Star spaces give points',
+      'Blue 2x and purple 3x multiply your roll',
+      'Avoid orange penalties and red danger zones',
+      'Reach the finish line for +200 bonus!',
+    ],
+  },
   'wrecking-ball': {
     title: 'Wrecking Ball',
     rules: [
