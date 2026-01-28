@@ -28,15 +28,14 @@ function createBlock(
 export function generateTower(level: number, groundY: number, centerX: number): Tower {
   const blocks: Block[] = [];
 
-  // Tower parameters scale with level - bigger and more complex
-  const baseWidth = Math.min(160 + level * 8, 280); // Wider towers
-  const floors = Math.min(5 + Math.floor(level / 2), 14); // More floors
+  // More floors as level increases - tall wobbly towers!
+  const floors = Math.min(6 + Math.floor(level * 0.8), 12);
   const blockHeight = 22;
   const blockGap = 2;
 
-  // Determine block types based on level
-  const stoneChance = Math.min(0.1 + level * 0.04, 0.35);
-  const steelChance = level >= 2 ? Math.min((level - 1) * 0.025, 0.12) : 0;
+  // Block types - more wood (easier to destroy)
+  const stoneChance = Math.min(0.05 + level * 0.03, 0.25);
+  const steelChance = level >= 3 ? Math.min((level - 2) * 0.02, 0.1) : 0;
 
   function getBlockType(): BlockType {
     const rand = Math.random();
@@ -45,150 +44,54 @@ export function generateTower(level: number, groundY: number, centerX: number): 
     return BlockType.Wood;
   }
 
-  // More tower patterns - cycle through them
+  // Fun wobbly tower patterns
   const patterns = [
-    buildSimpleTower,
-    buildPyramidTower,
-    buildWindowTower,
-    buildDoubleTower,
-    buildAlternatingTower,
-    buildCastleTower,
-    buildArchTower,
-    buildChaosStack,
-    buildBridgeTower,
-    buildZigzagTower,
+    buildTallTower,
+    buildTopHeavyTower,
+    buildWobblyStack,
+    buildTwinTowers,
+    buildInvertedTower,
+    buildPrecariousPile,
+    buildSkyscraper,
+    buildMushroomTower,
   ];
 
   const pattern = patterns[level % patterns.length];
-  pattern(blocks, centerX, groundY, baseWidth, floors, blockHeight, blockGap, getBlockType);
+  pattern(blocks, centerX, groundY, floors, blockHeight, blockGap, getBlockType);
 
   return { blocks, groundY };
 }
 
-function buildSimpleTower(
+// Classic tall narrow tower - satisfying to topple
+function buildTallTower(
   blocks: Block[],
   centerX: number,
   groundY: number,
-  baseWidth: number,
   floors: number,
   blockHeight: number,
   gap: number,
   getType: () => BlockType
 ): void {
-  const blocksPerRow = 4;
-  const blockWidth = (baseWidth - gap * (blocksPerRow - 1)) / blocksPerRow;
-  const startX = centerX - baseWidth / 2;
-
-  for (let floor = 0; floor < floors; floor++) {
-    const y = groundY - (floor + 1) * (blockHeight + gap);
-
-    for (let i = 0; i < blocksPerRow; i++) {
-      const x = startX + i * (blockWidth + gap);
-      blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
-    }
-  }
-}
-
-function buildPyramidTower(
-  blocks: Block[],
-  centerX: number,
-  groundY: number,
-  baseWidth: number,
-  floors: number,
-  blockHeight: number,
-  gap: number,
-  getType: () => BlockType
-): void {
-  const maxBlocksInRow = 5;
-
-  for (let floor = 0; floor < floors; floor++) {
-    const blocksInRow = Math.max(maxBlocksInRow - floor, 1);
-    const rowWidth = baseWidth * (blocksInRow / maxBlocksInRow);
-    const blockWidth = (rowWidth - gap * Math.max(blocksInRow - 1, 0)) / blocksInRow;
-    const startX = centerX - rowWidth / 2;
-    const y = groundY - (floor + 1) * (blockHeight + gap);
-
-    for (let i = 0; i < blocksInRow; i++) {
-      const x = startX + i * (blockWidth + gap);
-      blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
-    }
-  }
-}
-
-function buildWindowTower(
-  blocks: Block[],
-  centerX: number,
-  groundY: number,
-  baseWidth: number,
-  floors: number,
-  blockHeight: number,
-  gap: number,
-  getType: () => BlockType
-): void {
-  const blocksPerRow = 5;
-  const blockWidth = (baseWidth - gap * (blocksPerRow - 1)) / blocksPerRow;
-  const startX = centerX - baseWidth / 2;
-
-  for (let floor = 0; floor < floors; floor++) {
-    const y = groundY - (floor + 1) * (blockHeight + gap);
-
-    for (let i = 0; i < blocksPerRow; i++) {
-      // Create windows by skipping blocks in a checkerboard pattern
-      if (floor % 2 === 1 && (i === 1 || i === 3)) continue;
-
-      const x = startX + i * (blockWidth + gap);
-      blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
-    }
-  }
-}
-
-function buildDoubleTower(
-  blocks: Block[],
-  centerX: number,
-  groundY: number,
-  baseWidth: number,
-  floors: number,
-  blockHeight: number,
-  gap: number,
-  getType: () => BlockType
-): void {
-  const towerWidth = baseWidth * 0.35;
-  const towerGap = baseWidth * 0.3;
+  const towerWidth = 70;
   const blocksPerRow = 2;
   const blockWidth = (towerWidth - gap) / blocksPerRow;
-
-  const leftStartX = centerX - towerGap / 2 - towerWidth;
-  const rightStartX = centerX + towerGap / 2;
+  const startX = centerX - towerWidth / 2;
 
   for (let floor = 0; floor < floors; floor++) {
     const y = groundY - (floor + 1) * (blockHeight + gap);
 
-    // Left tower blocks
     for (let i = 0; i < blocksPerRow; i++) {
-      const x = leftStartX + i * (blockWidth + gap);
+      const x = startX + i * (blockWidth + gap);
       blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
-    }
-
-    // Right tower blocks
-    for (let i = 0; i < blocksPerRow; i++) {
-      const x = rightStartX + i * (blockWidth + gap);
-      blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
-    }
-
-    // Bridge between towers on some floors
-    if (floor > 0 && floor % 2 === 0) {
-      const bridgeX = leftStartX + towerWidth + gap;
-      const bridgeWidth = towerGap - gap * 2;
-      blocks.push(createBlock(bridgeX, y, bridgeWidth, blockHeight, BlockType.Steel));
     }
   }
 }
 
-function buildAlternatingTower(
+// Wider at top than bottom - wants to fall over!
+function buildTopHeavyTower(
   blocks: Block[],
   centerX: number,
   groundY: number,
-  baseWidth: number,
   floors: number,
   blockHeight: number,
   gap: number,
@@ -196,243 +99,191 @@ function buildAlternatingTower(
 ): void {
   for (let floor = 0; floor < floors; floor++) {
     const y = groundY - (floor + 1) * (blockHeight + gap);
-    const isWide = floor % 2 === 0;
 
-    if (isWide) {
-      const blocksPerRow = 4;
-      const blockWidth = (baseWidth - gap * (blocksPerRow - 1)) / blocksPerRow;
-      const startX = centerX - baseWidth / 2;
-
-      for (let i = 0; i < blocksPerRow; i++) {
-        const x = startX + i * (blockWidth + gap);
-        blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
-      }
-    } else {
-      const narrowWidth = baseWidth * 0.55;
-      const blocksPerRow = 2;
-      const blockWidth = (narrowWidth - gap) / blocksPerRow;
-      const startX = centerX - narrowWidth / 2;
-
-      for (let i = 0; i < blocksPerRow; i++) {
-        const x = startX + i * (blockWidth + gap);
-        blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
-      }
-    }
-  }
-}
-
-// Castle with turrets on sides
-function buildCastleTower(
-  blocks: Block[],
-  centerX: number,
-  groundY: number,
-  baseWidth: number,
-  floors: number,
-  blockHeight: number,
-  gap: number,
-  getType: () => BlockType
-): void {
-  const mainWidth = baseWidth * 0.5;
-  const turretWidth = baseWidth * 0.2;
-  const blocksPerRow = 3;
-  const blockWidth = (mainWidth - gap * (blocksPerRow - 1)) / blocksPerRow;
-
-  // Main tower
-  const mainFloors = floors;
-  const mainStartX = centerX - mainWidth / 2;
-
-  for (let floor = 0; floor < mainFloors; floor++) {
-    const y = groundY - (floor + 1) * (blockHeight + gap);
-
-    for (let i = 0; i < blocksPerRow; i++) {
-      const x = mainStartX + i * (blockWidth + gap);
-      blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
-    }
-  }
-
-  // Left turret (taller and thinner)
-  const turretFloors = floors + 3;
-  const leftTurretX = centerX - mainWidth / 2 - turretWidth - gap * 2;
-
-  for (let floor = 0; floor < turretFloors; floor++) {
-    const y = groundY - (floor + 1) * (blockHeight + gap);
-    blocks.push(createBlock(leftTurretX, y, turretWidth, blockHeight, getType()));
-  }
-
-  // Right turret
-  const rightTurretX = centerX + mainWidth / 2 + gap * 2;
-
-  for (let floor = 0; floor < turretFloors; floor++) {
-    const y = groundY - (floor + 1) * (blockHeight + gap);
-    blocks.push(createBlock(rightTurretX, y, turretWidth, blockHeight, getType()));
-  }
-
-  // Battlements on top of main tower
-  const battlementY = groundY - (mainFloors + 1) * (blockHeight + gap);
-  blocks.push(createBlock(mainStartX, battlementY, blockWidth, blockHeight, BlockType.Stone));
-  blocks.push(createBlock(mainStartX + 2 * (blockWidth + gap), battlementY, blockWidth, blockHeight, BlockType.Stone));
-}
-
-// Arch structure
-function buildArchTower(
-  blocks: Block[],
-  centerX: number,
-  groundY: number,
-  baseWidth: number,
-  floors: number,
-  blockHeight: number,
-  gap: number,
-  getType: () => BlockType
-): void {
-  const pillarWidth = baseWidth * 0.25;
-  const archGap = baseWidth * 0.5;
-  const pillarFloors = Math.floor(floors * 0.6);
-
-  // Left pillar
-  const leftPillarX = centerX - archGap / 2 - pillarWidth;
-  for (let floor = 0; floor < pillarFloors; floor++) {
-    const y = groundY - (floor + 1) * (blockHeight + gap);
-    blocks.push(createBlock(leftPillarX, y, pillarWidth, blockHeight, getType()));
-  }
-
-  // Right pillar
-  const rightPillarX = centerX + archGap / 2;
-  for (let floor = 0; floor < pillarFloors; floor++) {
-    const y = groundY - (floor + 1) * (blockHeight + gap);
-    blocks.push(createBlock(rightPillarX, y, pillarWidth, blockHeight, getType()));
-  }
-
-  // Arch top - keystone blocks
-  const archY = groundY - (pillarFloors + 1) * (blockHeight + gap);
-  const archWidth = baseWidth;
-  const archBlockWidth = archWidth / 5;
-  const archStartX = centerX - archWidth / 2;
-
-  for (let i = 0; i < 5; i++) {
-    const x = archStartX + i * archBlockWidth;
-    blocks.push(createBlock(x, archY, archBlockWidth - gap, blockHeight, BlockType.Stone));
-  }
-
-  // Stack on top of arch
-  const topFloors = floors - pillarFloors - 1;
-  const topWidth = baseWidth * 0.7;
-  const topBlockWidth = topWidth / 3;
-  const topStartX = centerX - topWidth / 2;
-
-  for (let floor = 0; floor < topFloors; floor++) {
-    const y = archY - (floor + 1) * (blockHeight + gap);
-    for (let i = 0; i < 3; i++) {
-      const x = topStartX + i * topBlockWidth;
-      blocks.push(createBlock(x, y, topBlockWidth - gap, blockHeight, getType()));
-    }
-  }
-}
-
-// Chaotic pile of blocks
-function buildChaosStack(
-  blocks: Block[],
-  centerX: number,
-  groundY: number,
-  baseWidth: number,
-  floors: number,
-  blockHeight: number,
-  gap: number,
-  getType: () => BlockType
-): void {
-  const totalBlocks = floors * 4;
-
-  for (let i = 0; i < totalBlocks; i++) {
-    // Random width blocks
-    const width = 25 + Math.random() * 50;
-    const height = blockHeight * (0.7 + Math.random() * 0.6);
-
-    // Stack them somewhat randomly but generally upward
-    const layer = Math.floor(i / 4);
-    const x = centerX - baseWidth / 2 + Math.random() * (baseWidth - width);
-    const y = groundY - (layer + 1) * (blockHeight + gap) - Math.random() * 10;
-
-    blocks.push(createBlock(x, y, width, height, getType()));
-  }
-}
-
-// Bridge structure with supports
-function buildBridgeTower(
-  blocks: Block[],
-  centerX: number,
-  groundY: number,
-  baseWidth: number,
-  floors: number,
-  blockHeight: number,
-  gap: number,
-  getType: () => BlockType
-): void {
-  const supportWidth = baseWidth * 0.15;
-  const deckHeight = Math.floor(floors * 0.4);
-
-  // Three support pillars
-  const positions = [-0.4, 0, 0.4];
-
-  for (const pos of positions) {
-    const pillarX = centerX + baseWidth * pos - supportWidth / 2;
-    const pillarFloors = pos === 0 ? deckHeight + 2 : deckHeight;
-
-    for (let floor = 0; floor < pillarFloors; floor++) {
-      const y = groundY - (floor + 1) * (blockHeight + gap);
-      blocks.push(createBlock(pillarX, y, supportWidth, blockHeight,
-        floor < 2 ? BlockType.Stone : getType()));
-    }
-  }
-
-  // Bridge deck
-  const deckY = groundY - deckHeight * (blockHeight + gap);
-  const deckBlockWidth = baseWidth / 6;
-  const deckStartX = centerX - baseWidth / 2;
-
-  for (let i = 0; i < 6; i++) {
-    const x = deckStartX + i * deckBlockWidth;
-    blocks.push(createBlock(x, deckY, deckBlockWidth - gap, blockHeight, BlockType.Steel));
-  }
-
-  // Tower on middle support
-  const towerFloors = floors - deckHeight - 2;
-  const towerWidth = supportWidth * 2;
-  const towerX = centerX - towerWidth / 2;
-
-  for (let floor = 0; floor < towerFloors; floor++) {
-    const y = groundY - (deckHeight + 3 + floor) * (blockHeight + gap);
-    blocks.push(createBlock(towerX, y, towerWidth, blockHeight, getType()));
-  }
-}
-
-// Zigzag/staircase tower
-function buildZigzagTower(
-  blocks: Block[],
-  centerX: number,
-  groundY: number,
-  baseWidth: number,
-  floors: number,
-  blockHeight: number,
-  gap: number,
-  getType: () => BlockType
-): void {
-  const blockWidth = baseWidth / 4;
-  const offset = baseWidth * 0.15;
-
-  for (let floor = 0; floor < floors; floor++) {
-    const y = groundY - (floor + 1) * (blockHeight + gap);
-
-    // Zigzag offset based on floor
-    const zigzagOffset = (floor % 4 < 2) ? -offset : offset;
-    const rowCenterX = centerX + zigzagOffset;
-
-    // Place 2-3 blocks per row
-    const blocksInRow = 3;
-    const rowWidth = blocksInRow * blockWidth;
-    const startX = rowCenterX - rowWidth / 2;
+    // Gets wider as we go up
+    const widthProgress = floor / Math.max(floors - 1, 1);
+    const blocksInRow = 1 + Math.floor(widthProgress * 3); // 1 to 4 blocks
+    const rowWidth = blocksInRow * 35;
+    const blockWidth = (rowWidth - gap * (blocksInRow - 1)) / blocksInRow;
+    const startX = centerX - rowWidth / 2;
 
     for (let i = 0; i < blocksInRow; i++) {
-      const x = startX + i * blockWidth;
-      blocks.push(createBlock(x, y, blockWidth - gap, blockHeight, getType()));
+      const x = startX + i * (blockWidth + gap);
+      blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
+    }
+  }
+}
+
+// Single column of blocks - super wobbly
+function buildWobblyStack(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  const blockWidth = 50;
+
+  for (let floor = 0; floor < floors + 2; floor++) {
+    const y = groundY - (floor + 1) * (blockHeight + gap);
+    // Slight random offset for wobbliness
+    const offset = (Math.random() - 0.5) * 8;
+    const x = centerX - blockWidth / 2 + offset;
+    blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
+  }
+}
+
+// Two tall towers side by side
+function buildTwinTowers(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  const towerWidth = 40;
+  const towerGap = 50;
+
+  // Left tower
+  const leftX = centerX - towerGap / 2 - towerWidth;
+  for (let floor = 0; floor < floors; floor++) {
+    const y = groundY - (floor + 1) * (blockHeight + gap);
+    blocks.push(createBlock(leftX, y, towerWidth, blockHeight, getType()));
+  }
+
+  // Right tower
+  const rightX = centerX + towerGap / 2;
+  for (let floor = 0; floor < floors; floor++) {
+    const y = groundY - (floor + 1) * (blockHeight + gap);
+    blocks.push(createBlock(rightX, y, towerWidth, blockHeight, getType()));
+  }
+
+  // Precarious bridge at top
+  const bridgeY = groundY - floors * (blockHeight + gap);
+  const bridgeWidth = towerGap + towerWidth * 2;
+  blocks.push(createBlock(centerX - bridgeWidth / 2, bridgeY, bridgeWidth, blockHeight, BlockType.Wood));
+}
+
+// Narrow at bottom, bulges out, narrow at top - very unstable
+function buildInvertedTower(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  for (let floor = 0; floor < floors; floor++) {
+    const y = groundY - (floor + 1) * (blockHeight + gap);
+
+    // Bulge in the middle
+    const progress = floor / Math.max(floors - 1, 1);
+    const bulge = Math.sin(progress * Math.PI); // 0 -> 1 -> 0
+    const blocksInRow = 1 + Math.floor(bulge * 3); // 1 to 4 blocks
+    const rowWidth = blocksInRow * 40;
+    const blockWidth = (rowWidth - gap * Math.max(blocksInRow - 1, 0)) / blocksInRow;
+    const startX = centerX - rowWidth / 2;
+
+    for (let i = 0; i < blocksInRow; i++) {
+      const x = startX + i * (blockWidth + gap);
+      blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
+    }
+  }
+}
+
+// Messy pile that looks ready to collapse
+function buildPrecariousPile(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  const totalBlocks = floors * 2;
+
+  // Base layer - couple blocks
+  let currentY = groundY - blockHeight - gap;
+  blocks.push(createBlock(centerX - 50, currentY, 45, blockHeight, getType()));
+  blocks.push(createBlock(centerX + 5, currentY, 45, blockHeight, getType()));
+
+  // Stack more blocks precariously on top
+  for (let i = 2; i < totalBlocks; i++) {
+    currentY -= blockHeight + gap;
+    const width = 30 + Math.random() * 40;
+    const offset = (Math.random() - 0.5) * 40;
+    const x = centerX - width / 2 + offset;
+    blocks.push(createBlock(x, currentY, width, blockHeight, getType()));
+  }
+}
+
+// Very tall and thin - like a real skyscraper
+function buildSkyscraper(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  const baseWidth = 80;
+  const topWidth = 40;
+
+  for (let floor = 0; floor < floors + 3; floor++) {
+    const y = groundY - (floor + 1) * (blockHeight + gap);
+
+    // Tapers slightly as it goes up
+    const progress = floor / (floors + 2);
+    const rowWidth = baseWidth - (baseWidth - topWidth) * progress;
+    const blocksInRow = rowWidth > 50 ? 2 : 1;
+    const blockWidth = (rowWidth - gap * (blocksInRow - 1)) / blocksInRow;
+    const startX = centerX - rowWidth / 2;
+
+    for (let i = 0; i < blocksInRow; i++) {
+      const x = startX + i * (blockWidth + gap);
+      blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
+    }
+  }
+}
+
+// Thin stem with big top - mushroom shape
+function buildMushroomTower(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  const stemWidth = 35;
+  const capWidth = 140;
+  const stemFloors = Math.floor(floors * 0.6);
+  const capFloors = floors - stemFloors;
+
+  // Thin stem
+  for (let floor = 0; floor < stemFloors; floor++) {
+    const y = groundY - (floor + 1) * (blockHeight + gap);
+    blocks.push(createBlock(centerX - stemWidth / 2, y, stemWidth, blockHeight, getType()));
+  }
+
+  // Wide cap on top
+  for (let floor = 0; floor < capFloors; floor++) {
+    const y = groundY - (stemFloors + floor + 1) * (blockHeight + gap);
+    const blocksInRow = 4;
+    const blockWidth = (capWidth - gap * (blocksInRow - 1)) / blocksInRow;
+    const startX = centerX - capWidth / 2;
+
+    for (let i = 0; i < blocksInRow; i++) {
+      const x = startX + i * (blockWidth + gap);
+      blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
     }
   }
 }
