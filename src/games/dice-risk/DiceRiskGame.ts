@@ -28,7 +28,6 @@ import {
   getGridSize,
   getBoardShape,
   BoardShape,
-  SpaceDirection,
 } from './board';
 
 const DICE_ROLL_DURATION = 1500;
@@ -708,60 +707,114 @@ export class DiceRiskGame implements GameInstance {
     ctx.fill();
   }
 
-  /** Draw echelon/chevron arrows showing direction along the path */
+  /** Draw echelon/chevron arrows around the border of the board */
   private drawDirectionArrows() {
-    const { cellSize, boardOffsetX, boardOffsetY, boardSize, boardShape } = this;
+    const { ctx, cellSize, boardOffsetX, boardOffsetY, boardSize, boardShape } = this;
+    const gridDims = getGridSize(boardSize, boardShape);
 
-    // Draw chevron arrows at regular intervals along the path
-    const arrowInterval = Math.max(3, Math.floor(boardSize / 7));
+    const boardWidth = gridDims.cols * cellSize;
+    const boardHeight = gridDims.rows * cellSize;
+    const margin = cellSize * 0.4; // Distance from board edge
+    const arrowSize = cellSize * 0.25;
 
-    for (let i = 1; i < boardSize; i += arrowInterval) {
-      const pos = indexToPosition(i, boardSize, boardShape);
-      const px = boardOffsetX + pos.x * cellSize + cellSize / 2;
-      const py = boardOffsetY + pos.y * cellSize + cellSize / 2;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
-      // Get angle from direction
-      const angle = this.directionToAngle(pos.direction);
-
-      // Draw double chevron (echelon arrows)
-      this.drawChevronArrows(px, py, angle, cellSize * 0.2);
+    // For ring/diamond shapes - arrows go clockwise around the perimeter
+    if (boardShape === 'ring' || boardShape === 'diamond') {
+      // Top edge - arrows pointing right
+      this.drawBorderChevrons(
+        boardOffsetX + boardWidth * 0.25, boardOffsetY - margin,
+        boardOffsetX + boardWidth * 0.75, boardOffsetY - margin,
+        arrowSize, 3
+      );
+      // Right edge - arrows pointing down
+      this.drawBorderChevrons(
+        boardOffsetX + boardWidth + margin, boardOffsetY + boardHeight * 0.25,
+        boardOffsetX + boardWidth + margin, boardOffsetY + boardHeight * 0.75,
+        arrowSize, 3
+      );
+      // Bottom edge - arrows pointing left
+      this.drawBorderChevrons(
+        boardOffsetX + boardWidth * 0.75, boardOffsetY + boardHeight + margin,
+        boardOffsetX + boardWidth * 0.25, boardOffsetY + boardHeight + margin,
+        arrowSize, 3
+      );
+      // Left edge - arrows pointing up
+      this.drawBorderChevrons(
+        boardOffsetX - margin, boardOffsetY + boardHeight * 0.75,
+        boardOffsetX - margin, boardOffsetY + boardHeight * 0.25,
+        arrowSize, 3
+      );
+    } else if (boardShape === 'serpentine') {
+      // Serpentine - alternating arrows on sides
+      for (let row = 0; row < gridDims.rows; row++) {
+        const y = boardOffsetY + (row + 0.5) * cellSize;
+        const goingRight = row % 2 === 0;
+        if (goingRight) {
+          // Right arrow on right side
+          this.drawChevronArrow(boardOffsetX + boardWidth + margin, y, 0, arrowSize);
+        } else {
+          // Left arrow on left side
+          this.drawChevronArrow(boardOffsetX - margin, y, Math.PI, arrowSize);
+        }
+        // Down arrow between rows (except last)
+        if (row < gridDims.rows - 1) {
+          const downX = goingRight ? boardOffsetX + boardWidth + margin : boardOffsetX - margin;
+          this.drawChevronArrow(downX, y + cellSize * 0.5, Math.PI / 2, arrowSize * 0.7);
+        }
+      }
+    } else if (boardShape === 'spiral') {
+      // Spiral - arrow indicating inward motion at corners
+      this.drawChevronArrow(boardOffsetX + boardWidth + margin, boardOffsetY + margin, Math.PI / 2, arrowSize);
+      this.drawChevronArrow(boardOffsetX + boardWidth - margin, boardOffsetY + boardHeight + margin, Math.PI, arrowSize);
+      this.drawChevronArrow(boardOffsetX - margin, boardOffsetY + boardHeight - margin, -Math.PI / 2, arrowSize);
+    } else if (boardShape === 'cross') {
+      // Cross - arrows on each arm
+      const centerY = boardHeight / 2;
+      this.drawChevronArrow(boardOffsetX + boardWidth + margin, boardOffsetY + centerY, Math.PI / 2, arrowSize);
+      this.drawChevronArrow(boardOffsetX + boardWidth / 2, boardOffsetY + boardHeight + margin, Math.PI, arrowSize);
+      this.drawChevronArrow(boardOffsetX - margin, boardOffsetY + centerY, -Math.PI / 2, arrowSize);
+    } else if (boardShape === 'figure8') {
+      // Figure 8 - circular arrows for each loop
+      const loopRadius = boardWidth * 0.35;
+      // Top loop
+      this.drawChevronArrow(boardOffsetX + boardWidth / 2 + loopRadius, boardOffsetY + boardHeight * 0.25, Math.PI / 2, arrowSize);
+      this.drawChevronArrow(boardOffsetX + boardWidth / 2 - loopRadius, boardOffsetY + boardHeight * 0.25, -Math.PI / 2, arrowSize);
+      // Bottom loop
+      this.drawChevronArrow(boardOffsetX + boardWidth / 2 + loopRadius, boardOffsetY + boardHeight * 0.75, Math.PI / 2, arrowSize);
+      this.drawChevronArrow(boardOffsetX + boardWidth / 2 - loopRadius, boardOffsetY + boardHeight * 0.75, -Math.PI / 2, arrowSize);
     }
   }
 
-  /** Convert direction to angle in radians */
-  private directionToAngle(direction: SpaceDirection): number {
-    switch (direction) {
-      case 'right': return 0;
-      case 'down-right': return Math.PI / 4;
-      case 'down': return Math.PI / 2;
-      case 'down-left': return Math.PI * 3 / 4;
-      case 'left': return Math.PI;
-      case 'up-left': return -Math.PI * 3 / 4;
-      case 'up': return -Math.PI / 2;
-      case 'up-right': return -Math.PI / 4;
-      default: return 0;
+  /** Draw a series of chevrons along a line */
+  private drawBorderChevrons(x1: number, y1: number, x2: number, y2: number, size: number, count: number) {
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+
+    for (let i = 0; i < count; i++) {
+      const t = (i + 0.5) / count;
+      const x = x1 + (x2 - x1) * t;
+      const y = y1 + (y2 - y1) * t;
+      this.drawChevronArrow(x, y, angle, size);
     }
   }
 
-  /** Draw echelon/chevron arrows (»») */
-  private drawChevronArrows(x: number, y: number, angle: number, size: number) {
+  /** Draw a single chevron arrow (>>) */
+  private drawChevronArrow(x: number, y: number, angle: number, size: number) {
     const { ctx } = this;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = size * 0.3;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    // Draw two chevrons (>>)
+    // Draw double chevron (>>)
     for (let i = 0; i < 2; i++) {
-      const offset = (i - 0.5) * size * 0.8;
+      const offset = (i - 0.5) * size * 0.7;
       ctx.beginPath();
-      ctx.moveTo(offset - size * 0.4, -size * 0.5);
-      ctx.lineTo(offset + size * 0.3, 0);
-      ctx.lineTo(offset - size * 0.4, size * 0.5);
+      ctx.moveTo(offset - size * 0.35, -size * 0.45);
+      ctx.lineTo(offset + size * 0.25, 0);
+      ctx.lineTo(offset - size * 0.35, size * 0.45);
       ctx.stroke();
     }
 
