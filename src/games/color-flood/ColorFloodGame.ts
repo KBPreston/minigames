@@ -182,7 +182,7 @@ export class ColorFloodGame implements GameInstance {
 
     this.movesLeft--;
     this.api.haptics.tap();
-    this.api.sounds.flood();
+    this.api.sounds.flood(newColor);
 
     // Warning sound when low on moves
     if (this.movesLeft === 5) {

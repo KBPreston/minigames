@@ -25,7 +25,7 @@ export interface GameAPI {
     burst(): void;
     drop(): void;
     merge(value: number): void;
-    flood(): void;
+    flood(colorIndex?: number): void;
     regionClear(): void;
     roundComplete(): void;
     gameStart(): void;

@@ -113,8 +113,8 @@ export function GameHost({ gameId, onScoreChange, onGameOver, isPaused }: GameHo
         merge: (value: number) => {
           if (settingsRef.current.sound) SoundEngine.merge(value);
         },
-        flood: () => {
-          if (settingsRef.current.sound) SoundEngine.flood();
+        flood: (colorIndex?: number) => {
+          if (settingsRef.current.sound) SoundEngine.flood(colorIndex);
         },
         regionClear: () => {
           if (settingsRef.current.sound) SoundEngine.regionClear();

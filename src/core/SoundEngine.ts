@@ -346,13 +346,44 @@ class SoundEngineClass {
   // Game Sounds - Color Flood specific
   // ============================================
 
-  /** Color flood/fill action */
-  flood() {
+  // Pentatonic scale frequencies - always sounds harmonious
+  // C4, D4, E4, G4, A4, C5 (octave)
+  private readonly PENTATONIC_SCALE = [262, 294, 330, 392, 440, 523];
+
+  /** Color flood/fill action - plays musical tone based on color index */
+  flood(colorIndex?: number) {
+    // If no color index, use default tone
+    if (colorIndex === undefined) {
+      this.playTone({
+        frequency: 300,
+        duration: 0.15,
+        type: 'sine',
+        gain: 0.2,
+        attack: 0.02,
+        decay: 0.08,
+      });
+      return;
+    }
+
+    // Play pentatonic note for this color
+    const frequency = this.PENTATONIC_SCALE[colorIndex % this.PENTATONIC_SCALE.length];
+
+    // Main tone - warm sine wave
     this.playTone({
-      frequency: 300,
+      frequency,
+      duration: 0.25,
+      type: 'sine',
+      gain: 0.3,
+      attack: 0.01,
+      decay: 0.12,
+    });
+
+    // Subtle harmonic overtone for richness
+    this.playTone({
+      frequency: frequency * 2,
       duration: 0.15,
       type: 'sine',
-      gain: 0.2,
+      gain: 0.08,
       attack: 0.02,
       decay: 0.08,
     });
