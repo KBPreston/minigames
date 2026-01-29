@@ -14,7 +14,6 @@ import {
   getColorMatchPositions,
   applyGravity,
   fillEmptyCells,
-  isGameOver,
   getComboWord,
   calculateMatchScore,
   createSpecialGem,
@@ -57,9 +56,17 @@ interface SpecialEffect {
 interface SlideState {
   type: 'row' | 'col';
   index: number;
-  offset: number; // Current pixel offset during drag
+  offset: number;
   startX: number;
   startY: number;
+}
+
+interface Bubble {
+  x: number;
+  y: number;
+  size: number;
+  speed: number;
+  wobble: number;
 }
 
 export class GemCrushGame implements GameInstance {
@@ -74,7 +81,7 @@ export class GemCrushGame implements GameInstance {
 
   private gameState: GameState = 'idle';
 
-  // Slide state for row/column dragging
+  // Slide state
   private slideState: SlideState | null = null;
   private isDragging: boolean = false;
   private dragStartPos: { x: number; y: number } | null = null;
@@ -97,6 +104,15 @@ export class GemCrushGame implements GameInstance {
   private fallStartTime: number = 0;
   private readonly FALL_DURATION = 300;
 
+  // Rising liquid danger
+  private liquidLevel: number = 0; // 0 = bottom, 1 = top (game over)
+  private readonly LIQUID_RISE_RATE = 0.008; // Per second
+  private readonly LIQUID_DROP_PER_GEM = 0.012; // How much each cleared gem drops the level
+  private readonly LIQUID_DROP_PER_CASCADE = 0.02; // Bonus for cascade combos
+  private liquidWaveTime: number = 0;
+  private bubbles: Bubble[] = [];
+  private lastBubbleTime: number = 0;
+
   // Screen shake
   private screenShake: number = 0;
   private screenShakeDecay: number = 0;
@@ -116,6 +132,7 @@ export class GemCrushGame implements GameInstance {
   private floatingTexts: FloatingText[] = [];
   private animationFrameId: number = 0;
   private defeatAnimation: DefeatAnimation | null = null;
+  private lastUpdateTime: number = 0;
 
   constructor(container: HTMLElement, api: GameAPI) {
     this.container = container;
@@ -253,12 +270,10 @@ export class GemCrushGame implements GameInstance {
     const deltaX = currentX - this.dragStartPos.x;
     const deltaY = currentY - this.dragStartPos.y;
 
-    // Determine slide direction if not yet determined
     if (!this.slideState) {
-      const threshold = 10; // Minimum pixels to determine direction
+      const threshold = 10;
       if (Math.abs(deltaX) > threshold || Math.abs(deltaY) > threshold) {
         if (Math.abs(deltaX) > Math.abs(deltaY)) {
-          // Horizontal slide - affects the row
           this.slideState = {
             type: 'row',
             index: this.dragStartCell.row,
@@ -267,7 +282,6 @@ export class GemCrushGame implements GameInstance {
             startY: this.dragStartPos.y,
           };
         } else {
-          // Vertical slide - affects the column
           this.slideState = {
             type: 'col',
             index: this.dragStartCell.col,
@@ -281,7 +295,6 @@ export class GemCrushGame implements GameInstance {
       }
     }
 
-    // Update offset
     if (this.slideState) {
       if (this.slideState.type === 'row') {
         this.slideState.offset = currentX - this.slideState.startX;
@@ -297,24 +310,18 @@ export class GemCrushGame implements GameInstance {
     this.isDragging = false;
 
     if (this.slideState && this.gameState === 'sliding') {
-      // Calculate how many cells to shift
       const cellsToShift = Math.round(this.slideState.offset / this.cellSize);
 
       if (cellsToShift !== 0) {
-        // Apply the shift to the grid
         this.applySlide(this.slideState.type, this.slideState.index, cellsToShift);
-
-        // Animate snap to final position
         this.snapFrom = this.slideState.offset;
         this.snapTo = cellsToShift * this.cellSize;
         this.snapProgress = 0;
         this.snapStartTime = performance.now();
         this.gameState = 'snapping';
-
         this.api.sounds.place();
         this.api.haptics.tap();
       } else {
-        // Snap back to original position
         this.snapFrom = this.slideState.offset;
         this.snapTo = 0;
         this.snapProgress = 0;
@@ -334,13 +341,11 @@ export class GemCrushGame implements GameInstance {
 
   private applySlide(type: 'row' | 'col', index: number, shift: number) {
     if (type === 'row') {
-      // Shift row horizontally (with wrapping)
       const row = this.grid[index];
       const newRow: (Gem | null)[] = new Array(GRID_COLS);
 
       for (let col = 0; col < GRID_COLS; col++) {
         let sourceCol = col - shift;
-        // Wrap around
         while (sourceCol < 0) sourceCol += GRID_COLS;
         while (sourceCol >= GRID_COLS) sourceCol -= GRID_COLS;
         newRow[col] = row[sourceCol];
@@ -348,7 +353,6 @@ export class GemCrushGame implements GameInstance {
 
       this.grid[index] = newRow;
     } else {
-      // Shift column vertically (with wrapping)
       const column: (Gem | null)[] = [];
       for (let row = 0; row < GRID_ROWS; row++) {
         column.push(this.grid[row][index]);
@@ -356,7 +360,6 @@ export class GemCrushGame implements GameInstance {
 
       for (let row = 0; row < GRID_ROWS; row++) {
         let sourceRow = row - shift;
-        // Wrap around
         while (sourceRow < 0) sourceRow += GRID_ROWS;
         while (sourceRow >= GRID_ROWS) sourceRow -= GRID_ROWS;
         this.grid[row][index] = column[sourceRow];
@@ -374,18 +377,12 @@ export class GemCrushGame implements GameInstance {
     const matches = findMatches(this.grid);
 
     if (matches.length === 0) {
-      // Check for game over
-      if (isGameOver(this.grid)) {
-        this.triggerDefeat();
-      } else {
-        this.gameState = 'idle';
-      }
+      this.gameState = 'idle';
       return;
     }
 
     const result = analyzeMatches(this.grid, matches);
 
-    // Collect all positions to clear
     const positionsToMark = new Set<string>();
     for (const match of matches) {
       for (const pos of match.positions) {
@@ -393,7 +390,6 @@ export class GemCrushGame implements GameInstance {
       }
     }
 
-    // Play sounds based on match size
     const totalCleared = positionsToMark.size;
     if (totalCleared >= 5) {
       this.api.sounds.clearMulti(totalCleared);
@@ -407,10 +403,13 @@ export class GemCrushGame implements GameInstance {
 
     this.api.haptics.success();
 
-    // Store positions marked for clearing
+    // Drop liquid level based on gems cleared
+    const liquidDrop = totalCleared * this.LIQUID_DROP_PER_GEM +
+                       (this.cascadeLevel > 1 ? this.LIQUID_DROP_PER_CASCADE * this.cascadeLevel : 0);
+    this.liquidLevel = Math.max(0, this.liquidLevel - liquidDrop);
+
     this.clearingPositions = positionsToMark;
 
-    // Create special gems
     for (const special of result.specialGems) {
       const { position, type, colorIndex } = special;
       this.grid[position.row][position.col] = createSpecialGem(colorIndex, type);
@@ -418,7 +417,6 @@ export class GemCrushGame implements GameInstance {
       this.clearingPositions.delete(`${position.row},${position.col}`);
     }
 
-    // Calculate score
     let points = 0;
     for (const match of matches) {
       points += calculateMatchScore(match.length, false, this.cascadeLevel);
@@ -426,7 +424,6 @@ export class GemCrushGame implements GameInstance {
     this.score += points;
     this.api.setScore(this.score);
 
-    // Spawn particles for cleared positions
     const clearPositions: Position[] = [];
     for (const key of this.clearingPositions) {
       const [row, col] = key.split(',').map(Number);
@@ -434,7 +431,6 @@ export class GemCrushGame implements GameInstance {
     }
     this.spawnClearParticles(clearPositions);
 
-    // Show floating text
     if (clearPositions.length > 0) {
       const sumX = clearPositions.reduce(
         (sum, p) => sum + this.gridOffsetX + p.col * this.cellSize + this.cellSize / 2,
@@ -472,7 +468,6 @@ export class GemCrushGame implements GameInstance {
   }
 
   private processClearComplete() {
-    // Check for special gems in cleared positions and activate them
     const specialsToActivate: { pos: Position; gem: Gem }[] = [];
 
     for (const key of this.clearingPositions) {
@@ -483,27 +478,21 @@ export class GemCrushGame implements GameInstance {
       }
     }
 
-    // Activate special gems
     if (specialsToActivate.length > 0) {
       for (const { pos, gem } of specialsToActivate) {
         this.activateSpecialGem(pos, gem);
       }
     }
 
-    // Remove cleared gems
     for (const key of this.clearingPositions) {
       const [row, col] = key.split(',').map(Number);
       this.grid[row][col] = null;
     }
     this.clearingPositions.clear();
 
-    // Apply gravity
     const movements = applyGravity(this.grid);
-
-    // Fill empty cells
     const newGems = fillEmptyCells(this.grid);
 
-    // Track falling gems for animation
     this.fallingGems = [];
 
     for (const move of movements) {
@@ -542,7 +531,6 @@ export class GemCrushGame implements GameInstance {
   private activateSpecialGem(pos: Position, gem: Gem) {
     const positions = getSpecialGemClearPositions(this.grid, pos, gem);
 
-    // Create visual effect
     const effectX = this.gridOffsetX + pos.col * this.cellSize;
     const effectY = this.gridOffsetY + pos.row * this.cellSize;
 
@@ -563,7 +551,6 @@ export class GemCrushGame implements GameInstance {
       this.screenShake = 1;
       this.screenShakeDecay = 0.95;
     } else if (gem.type === 'rainbow') {
-      // Rainbow clears a random color
       const colors = new Set<number>();
       for (let r = 0; r < GRID_ROWS; r++) {
         for (let c = 0; c < GRID_COLS; c++) {
@@ -597,12 +584,10 @@ export class GemCrushGame implements GameInstance {
 
     this.api.sounds.burst();
 
-    // Mark positions for clearing
     for (const p of positions) {
       this.clearingPositions.add(`${p.row},${p.col}`);
     }
 
-    // Spawn particles
     for (const p of positions) {
       const g = this.grid[p.row][p.col];
       if (g) {
@@ -612,7 +597,10 @@ export class GemCrushGame implements GameInstance {
       }
     }
 
-    // Add score
+    // Extra liquid drop for special gems
+    const liquidDrop = positions.length * this.LIQUID_DROP_PER_GEM * 1.5;
+    this.liquidLevel = Math.max(0, this.liquidLevel - liquidDrop);
+
     const points = 150 * positions.length * this.cascadeLevel;
     this.score += points;
     this.api.setScore(this.score);
@@ -623,13 +611,11 @@ export class GemCrushGame implements GameInstance {
   }
 
   private processFallComplete() {
-    // Reset all gem offsets
     for (const { gem } of this.fallingGems) {
       gem.offsetY = 0;
     }
     this.fallingGems = [];
 
-    // Increment cascade and check for more matches
     this.cascadeLevel++;
     this.processMatches();
   }
@@ -639,7 +625,6 @@ export class GemCrushGame implements GameInstance {
     this.defeatAnimation = createDefeatAnimation();
     this.api.sounds.gameOver();
 
-    // Generate particles from all gems
     const cells: { x: number; y: number; color: string }[] = [];
     for (let row = 0; row < GRID_ROWS; row++) {
       for (let col = 0; col < GRID_COLS; col++) {
@@ -656,6 +641,41 @@ export class GemCrushGame implements GameInstance {
     this.particles.push(...generateDefeatParticles(cells));
   }
 
+  private spawnBubble() {
+    const gridWidth = this.cellSize * GRID_COLS;
+    const gridHeight = this.cellSize * GRID_ROWS;
+    const liquidY = this.gridOffsetY + gridHeight * (1 - this.liquidLevel);
+
+    this.bubbles.push({
+      x: this.gridOffsetX + Math.random() * gridWidth,
+      y: liquidY + Math.random() * (gridHeight * this.liquidLevel),
+      size: 3 + Math.random() * 6,
+      speed: 20 + Math.random() * 40,
+      wobble: Math.random() * Math.PI * 2,
+    });
+  }
+
+  private updateBubbles(deltaTime: number) {
+    const gridHeight = this.cellSize * GRID_ROWS;
+    const liquidY = this.gridOffsetY + gridHeight * (1 - this.liquidLevel);
+
+    this.bubbles = this.bubbles.filter((bubble) => {
+      bubble.y -= bubble.speed * deltaTime;
+      bubble.wobble += deltaTime * 3;
+      bubble.x += Math.sin(bubble.wobble) * 0.5;
+
+      // Remove if above liquid surface
+      return bubble.y > liquidY - 10;
+    });
+
+    // Spawn new bubbles
+    const now = performance.now();
+    if (now - this.lastBubbleTime > 200 && this.liquidLevel > 0.1) {
+      this.spawnBubble();
+      this.lastBubbleTime = now;
+    }
+  }
+
   private startAnimationLoop = () => {
     if (this.isDestroyed || this.isPaused) return;
 
@@ -666,15 +686,18 @@ export class GemCrushGame implements GameInstance {
       this.gameState !== 'idle' ||
       hasActiveEffects(this.particles, this.floatingTexts) ||
       this.screenShake > 0.01 ||
-      this.specialEffects.length > 0;
+      this.specialEffects.length > 0 ||
+      this.liquidLevel > 0;
 
-    if (hasAnimations || this.defeatAnimation) {
+    if (hasAnimations || this.defeatAnimation || this.gameState !== 'defeat') {
       this.animationFrameId = requestAnimationFrame(this.startAnimationLoop);
     }
   };
 
   private update() {
     const now = performance.now();
+    const deltaTime = Math.min((now - this.lastUpdateTime) / 1000, 0.1);
+    this.lastUpdateTime = now;
 
     // Update screen shake
     if (this.screenShake > 0.01) {
@@ -689,18 +712,38 @@ export class GemCrushGame implements GameInstance {
       return effect.progress < 1;
     });
 
-    // Update gem animations (scale, shake)
+    // Update liquid wave time
+    this.liquidWaveTime += deltaTime * 2;
+
+    // Update bubbles
+    this.updateBubbles(deltaTime);
+
+    // Rise liquid (only when idle or sliding)
+    if (this.gameState === 'idle' || this.gameState === 'sliding') {
+      this.liquidLevel += this.LIQUID_RISE_RATE * deltaTime;
+
+      // Check for defeat
+      if (this.liquidLevel >= 1) {
+        this.triggerDefeat();
+        return;
+      }
+    }
+
+    // Play warning sound when liquid is high
+    if (this.liquidLevel > 0.7 && this.liquidLevel < 0.71) {
+      this.api.sounds.warning();
+    }
+
+    // Update gem animations
     for (let row = 0; row < GRID_ROWS; row++) {
       for (let col = 0; col < GRID_COLS; col++) {
         const gem = this.grid[row][col];
         if (!gem) continue;
 
-        // Scale animation for new/special gems
         if (gem.scale < 1) {
           gem.scale = Math.min(1, gem.scale + 0.1);
         }
 
-        // Shake decay
         if (gem.shake > 0) {
           gem.shake = Math.max(0, gem.shake - 0.1);
         }
@@ -714,7 +757,6 @@ export class GemCrushGame implements GameInstance {
         this.snapProgress = Math.min(1, elapsed / this.SNAP_DURATION);
 
         if (this.slideState) {
-          // Ease out
           const eased = 1 - Math.pow(1 - this.snapProgress, 3);
           this.slideState.offset = this.snapFrom + (this.snapTo - this.snapFrom) * eased;
         }
@@ -729,7 +771,6 @@ export class GemCrushGame implements GameInstance {
         const elapsed = now - this.clearStartTime;
         this.clearProgress = Math.min(1, elapsed / this.CLEAR_DURATION);
 
-        // Animate clearing gems (shrink)
         for (const key of this.clearingPositions) {
           const [row, col] = key.split(',').map(Number);
           const gem = this.grid[row][col];
@@ -748,10 +789,8 @@ export class GemCrushGame implements GameInstance {
         const elapsed = now - this.fallStartTime;
         this.fallProgress = Math.min(1, elapsed / this.FALL_DURATION);
 
-        // Ease out bounce
         const eased = this.easeOutBounce(this.fallProgress);
 
-        // Animate falling gems
         for (const { gem, fromRow, toRow } of this.fallingGems) {
           const distance = (fromRow - toRow) * this.cellSize;
           gem.offsetY = distance * (1 - eased);
@@ -791,11 +830,127 @@ export class GemCrushGame implements GameInstance {
     }
   }
 
+  private drawLiquid() {
+    const ctx = this.ctx;
+    const gridWidth = this.cellSize * GRID_COLS;
+    const gridHeight = this.cellSize * GRID_ROWS;
+    const liquidHeight = gridHeight * this.liquidLevel;
+    const liquidY = this.gridOffsetY + gridHeight - liquidHeight;
+
+    if (liquidHeight <= 0) return;
+
+    ctx.save();
+
+    // Clip to grid area
+    ctx.beginPath();
+    ctx.rect(this.gridOffsetX, this.gridOffsetY, gridWidth, gridHeight);
+    ctx.clip();
+
+    // Draw liquid body with gradient
+    const gradient = ctx.createLinearGradient(
+      this.gridOffsetX,
+      liquidY,
+      this.gridOffsetX,
+      this.gridOffsetY + gridHeight
+    );
+
+    // Dangerous red/magenta liquid
+    const dangerIntensity = Math.min(1, this.liquidLevel * 1.5);
+    const baseAlpha = 0.4 + dangerIntensity * 0.2;
+
+    gradient.addColorStop(0, `rgba(220, 50, 100, ${baseAlpha * 0.6})`);
+    gradient.addColorStop(0.3, `rgba(180, 30, 80, ${baseAlpha * 0.8})`);
+    gradient.addColorStop(1, `rgba(100, 20, 60, ${baseAlpha})`);
+
+    // Draw wavy top surface
+    ctx.beginPath();
+    ctx.moveTo(this.gridOffsetX, this.gridOffsetY + gridHeight);
+
+    // Create wave pattern
+    const waveAmplitude = 4 + this.liquidLevel * 3;
+    const waveFrequency = 0.05;
+
+    for (let x = 0; x <= gridWidth; x += 2) {
+      const wave1 = Math.sin((x * waveFrequency) + this.liquidWaveTime) * waveAmplitude;
+      const wave2 = Math.sin((x * waveFrequency * 0.7) + this.liquidWaveTime * 1.3) * waveAmplitude * 0.5;
+      const waveY = liquidY + wave1 + wave2;
+
+      if (x === 0) {
+        ctx.moveTo(this.gridOffsetX + x, waveY);
+      } else {
+        ctx.lineTo(this.gridOffsetX + x, waveY);
+      }
+    }
+
+    ctx.lineTo(this.gridOffsetX + gridWidth, this.gridOffsetY + gridHeight);
+    ctx.lineTo(this.gridOffsetX, this.gridOffsetY + gridHeight);
+    ctx.closePath();
+
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Draw surface highlight
+    ctx.beginPath();
+    for (let x = 0; x <= gridWidth; x += 2) {
+      const wave1 = Math.sin((x * waveFrequency) + this.liquidWaveTime) * waveAmplitude;
+      const wave2 = Math.sin((x * waveFrequency * 0.7) + this.liquidWaveTime * 1.3) * waveAmplitude * 0.5;
+      const waveY = liquidY + wave1 + wave2;
+
+      if (x === 0) {
+        ctx.moveTo(this.gridOffsetX + x, waveY);
+      } else {
+        ctx.lineTo(this.gridOffsetX + x, waveY);
+      }
+    }
+    ctx.strokeStyle = `rgba(255, 150, 180, ${0.5 + dangerIntensity * 0.3})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Draw secondary wave line
+    ctx.beginPath();
+    for (let x = 0; x <= gridWidth; x += 2) {
+      const wave1 = Math.sin((x * waveFrequency) + this.liquidWaveTime + 1) * waveAmplitude * 0.6;
+      const wave2 = Math.sin((x * waveFrequency * 0.5) + this.liquidWaveTime * 0.8) * waveAmplitude * 0.3;
+      const waveY = liquidY + 8 + wave1 + wave2;
+
+      if (x === 0) {
+        ctx.moveTo(this.gridOffsetX + x, waveY);
+      } else {
+        ctx.lineTo(this.gridOffsetX + x, waveY);
+      }
+    }
+    ctx.strokeStyle = `rgba(255, 100, 150, 0.3)`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Draw bubbles
+    for (const bubble of this.bubbles) {
+      ctx.beginPath();
+      ctx.arc(bubble.x, bubble.y, bubble.size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 200, 220, 0.4)`;
+      ctx.fill();
+
+      // Bubble highlight
+      ctx.beginPath();
+      ctx.arc(bubble.x - bubble.size * 0.3, bubble.y - bubble.size * 0.3, bubble.size * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, 0.6)`;
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    // Draw danger indicator when high
+    if (this.liquidLevel > 0.6) {
+      const pulseAlpha = 0.3 + Math.sin(this.liquidWaveTime * 3) * 0.2;
+      ctx.fillStyle = `rgba(255, 0, 50, ${pulseAlpha * (this.liquidLevel - 0.6) * 2.5})`;
+      ctx.fillRect(this.gridOffsetX - 4, this.gridOffsetY - 4, gridWidth + 8, gridHeight + 8);
+    }
+  }
+
   private render() {
     if (this.isDestroyed || this.grid.length === 0) return;
     const rect = this.container.getBoundingClientRect();
 
-    // Get shake offset
     const shake = this.defeatAnimation
       ? getShakeOffset(this.defeatAnimation)
       : { x: this.screenShake * (Math.random() - 0.5) * 10, y: this.screenShake * (Math.random() - 0.5) * 10 };
@@ -808,7 +963,10 @@ export class GemCrushGame implements GameInstance {
     // Draw grid background
     drawGridBackground(this.ctx, this.gridOffsetX, this.gridOffsetY, this.cellSize);
 
-    // Draw gems with slide offset
+    // Draw liquid BEHIND gems
+    this.drawLiquid();
+
+    // Draw gems
     for (let row = 0; row < GRID_ROWS; row++) {
       for (let col = 0; col < GRID_COLS; col++) {
         const gem = this.grid[row][col];
@@ -817,16 +975,13 @@ export class GemCrushGame implements GameInstance {
         let x = this.gridOffsetX + col * this.cellSize;
         let y = this.gridOffsetY + row * this.cellSize;
 
-        // Apply slide offset
         if (this.slideState) {
           if (this.slideState.type === 'row' && this.slideState.index === row) {
             x += this.slideState.offset;
-            // Wrap rendering
             const gridWidth = this.cellSize * GRID_COLS;
             if (x < this.gridOffsetX - this.cellSize) {
               x += gridWidth;
             } else if (x > this.gridOffsetX + gridWidth - this.cellSize) {
-              // Draw wrapped version on the other side
               this.ctx.save();
               this.ctx.beginPath();
               this.ctx.rect(this.gridOffsetX, this.gridOffsetY, gridWidth, this.cellSize * GRID_ROWS);
@@ -836,12 +991,10 @@ export class GemCrushGame implements GameInstance {
             }
           } else if (this.slideState.type === 'col' && this.slideState.index === col) {
             y += this.slideState.offset;
-            // Wrap rendering
             const gridHeight = this.cellSize * GRID_ROWS;
             if (y < this.gridOffsetY - this.cellSize) {
               y += gridHeight;
             } else if (y > this.gridOffsetY + gridHeight - this.cellSize) {
-              // Draw wrapped version on the other side
               this.ctx.save();
               this.ctx.beginPath();
               this.ctx.rect(this.gridOffsetX, this.gridOffsetY, this.cellSize * GRID_COLS, gridHeight);
@@ -852,7 +1005,6 @@ export class GemCrushGame implements GameInstance {
           }
         }
 
-        // Clip to grid area for sliding
         this.ctx.save();
         this.ctx.beginPath();
         this.ctx.rect(this.gridOffsetX, this.gridOffsetY, this.cellSize * GRID_COLS, this.cellSize * GRID_ROWS);
@@ -891,7 +1043,7 @@ export class GemCrushGame implements GameInstance {
 
     this.ctx.restore();
 
-    // Draw particles and floating text (not affected by shake)
+    // Draw particles and floating text
     const reduceMotion = this.api.getSettings().reduceMotion;
     drawParticles(this.ctx, this.particles, reduceMotion);
     drawFloatingTexts(this.ctx, this.floatingTexts, reduceMotion);
@@ -899,43 +1051,53 @@ export class GemCrushGame implements GameInstance {
     // Draw defeat overlay
     drawDefeatOverlay(this.ctx, rect.width, rect.height, this.defeatAnimation);
 
-    // Draw slide indicator during idle
-    if (this.gameState === 'idle' && !this.isDragging) {
-      this.drawSlideHint();
-    }
+    // Draw liquid level indicator on the side
+    this.drawLiquidMeter();
   }
 
-  private drawSlideHint() {
-    // Draw subtle arrows on edges to indicate sliding is possible
+  private drawLiquidMeter() {
     const ctx = this.ctx;
-    const alpha = 0.3 + Math.sin(performance.now() / 500) * 0.1;
+    const meterWidth = 12;
+    const meterHeight = this.cellSize * GRID_ROWS;
+    const meterX = this.gridOffsetX - meterWidth - 12;
+    const meterY = this.gridOffsetY;
 
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '16px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.beginPath();
+    ctx.roundRect(meterX, meterY, meterWidth, meterHeight, 6);
+    ctx.fill();
 
-    // Left/right arrows for rows
-    const midRow = Math.floor(GRID_ROWS / 2);
-    const leftX = this.gridOffsetX - 15;
-    const rightX = this.gridOffsetX + this.cellSize * GRID_COLS + 15;
-    const rowY = this.gridOffsetY + midRow * this.cellSize + this.cellSize / 2;
+    // Liquid fill
+    const fillHeight = meterHeight * this.liquidLevel;
+    const fillY = meterY + meterHeight - fillHeight;
 
-    ctx.fillText('◀', leftX, rowY);
-    ctx.fillText('▶', rightX, rowY);
+    const gradient = ctx.createLinearGradient(meterX, fillY, meterX, meterY + meterHeight);
+    gradient.addColorStop(0, 'rgba(255, 100, 150, 0.9)');
+    gradient.addColorStop(1, 'rgba(150, 30, 80, 0.9)');
 
-    // Up/down arrows for columns
-    const midCol = Math.floor(GRID_COLS / 2);
-    const colX = this.gridOffsetX + midCol * this.cellSize + this.cellSize / 2;
-    const topY = this.gridOffsetY - 15;
-    const bottomY = this.gridOffsetY + this.cellSize * GRID_ROWS + 15;
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.roundRect(meterX + 2, fillY, meterWidth - 4, fillHeight, 4);
+    ctx.fill();
 
-    ctx.fillText('▲', colX, topY);
-    ctx.fillText('▼', colX, bottomY);
+    // Danger zone marker
+    const dangerY = meterY + meterHeight * 0.3;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(meterX, dangerY);
+    ctx.lineTo(meterX + meterWidth, dangerY);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
-    ctx.restore();
+    // Border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(meterX, meterY, meterWidth, meterHeight, 6);
+    ctx.stroke();
   }
 
   start() {
@@ -951,6 +1113,10 @@ export class GemCrushGame implements GameInstance {
     this.screenShake = 0;
     this.defeatAnimation = null;
     this.isPaused = false;
+    this.liquidLevel = 0;
+    this.liquidWaveTime = 0;
+    this.bubbles = [];
+    this.lastUpdateTime = performance.now();
     this.api.setScore(0);
     this.api.sounds.gameStart();
     this.render();
@@ -967,6 +1133,7 @@ export class GemCrushGame implements GameInstance {
 
   resume() {
     this.isPaused = false;
+    this.lastUpdateTime = performance.now();
     this.startAnimationLoop();
   }
 
