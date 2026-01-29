@@ -15,7 +15,7 @@ const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
       'Cyan spaces add dice, red danger zones cost dice',
       'Pink multiplier dice boost ALL point gains permanently',
       '2x/3x spaces multiply your roll value for big points',
-      'Complete laps around the board to level up',
+      'Complete laps to level up - board shape changes!',
       'Game over when you run out of dice!',
     ],
   },
@@ -34,17 +34,17 @@ const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
   'bloom-burst': {
     title: 'Bloom Burst',
     rules: [
-      'Drag pieces onto the 8x8 grid to place them',
-      'Fill a 3x3 square to trigger a bloom burst',
-      'Bursts clear the 3x3 and spread to all connected tiles',
-      'Bigger bursts = bigger points! Chain for combos',
+      'Drag pieces onto the 6x6 grid to place them',
+      'Fill a complete row or column to clear it',
+      'Clear multiple lines at once for bonus points',
+      'Keep clearing to build combo multipliers',
       'Game ends when no piece fits on the board',
     ],
   },
   'block-blast': {
     title: 'Block Blast',
     rules: [
-      'Drag pieces onto the 8x8 grid to place them',
+      'Drag pieces onto the 6x6 grid to place them',
       'Fill a complete row or column to clear it',
       'Clear multiple lines at once for bonus points',
       'Keep clearing to build combo multipliers',
@@ -70,6 +70,28 @@ const GAME_RULES: Record<string, { title: string; rules: string[] }> = {
       'Fill the entire board with one color to win the round',
       'Round bonus: +500 plus +20 per move remaining',
       'You have 25 moves per round - plan big captures!',
+    ],
+  },
+  'tower-demolition': {
+    title: 'Tower Demolition',
+    rules: [
+      'Drag to aim, release to place a bomb on the tower',
+      'Destroy 70% of blocks to advance to the next level',
+      'Each level gives you different bomb types to use',
+      'Bombs: Dynamite, Cartoon Bomb, Cluster, Shockwave',
+      'Blocks crushed by falling debris also count!',
+      'Game over when you run out of bombs',
+    ],
+  },
+  'gem-crush': {
+    title: 'Gem Crush',
+    rules: [
+      'Tap a gem, then tap an adjacent gem to swap them',
+      'Match 3+ gems of the same color to clear them',
+      'Match 4 in a line to create a Line Blaster gem',
+      'Match in a 2x2 square to create a Bomb gem',
+      'Cascades multiply your score - chain reactions!',
+      'Game ends when no valid swaps remain',
     ],
   },
 };
