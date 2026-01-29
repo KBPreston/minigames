@@ -1,4 +1,5 @@
 import { Block, BlockType, Tower } from './types';
+import { initBlockPhysics } from './physics';
 
 let blockIdCounter = 0;
 
@@ -9,7 +10,7 @@ function createBlock(
   height: number,
   type: BlockType
 ): Block {
-  return {
+  const block: Block = {
     id: blockIdCounter++,
     x,
     y,
@@ -22,7 +23,21 @@ function createBlock(
     settled: true,
     rotation: 0,
     rotationVel: 0,
+    // Physics properties - will be initialized
+    mass: 0,
+    momentOfInertia: 0,
+    torque: 0,
+    isSupported: true,
+    isTipping: false,
+    supportInfo: null,
+    isSliding: false,
+    staticFrictionExceeded: false,
   };
+
+  // Initialize physics properties based on size and type
+  initBlockPhysics(block);
+
+  return block;
 }
 
 export function generateTower(level: number, groundY: number, centerX: number): Tower {
@@ -44,7 +59,7 @@ export function generateTower(level: number, groundY: number, centerX: number): 
     return BlockType.Wood;
   }
 
-  // Fun wobbly tower patterns
+  // Fun wobbly tower patterns - now including beam structures!
   const patterns = [
     buildTallTower,
     buildTopHeavyTower,
@@ -54,6 +69,11 @@ export function generateTower(level: number, groundY: number, centerX: number): 
     buildPrecariousPile,
     buildSkyscraper,
     buildMushroomTower,
+    // New beam-based structures
+    buildBalancingBeam,
+    buildSeesawTower,
+    buildBridgeStructure,
+    buildCantilever,
   ];
 
   const pattern = patterns[level % patterns.length];
@@ -162,10 +182,10 @@ function buildTwinTowers(
     blocks.push(createBlock(rightX, y, towerWidth, blockHeight, getType()));
   }
 
-  // Precarious bridge at top
+  // Precarious bridge beam at top
   const bridgeY = groundY - floors * (blockHeight + gap);
   const bridgeWidth = towerGap + towerWidth * 2;
-  blocks.push(createBlock(centerX - bridgeWidth / 2, bridgeY, bridgeWidth, blockHeight, BlockType.Wood));
+  blocks.push(createBlock(centerX - bridgeWidth / 2, bridgeY, bridgeWidth, blockHeight * 0.7, BlockType.Beam));
 }
 
 // Narrow at bottom, bulges out, narrow at top - very unstable
@@ -286,6 +306,231 @@ function buildMushroomTower(
       blocks.push(createBlock(x, y, blockWidth, blockHeight, getType()));
     }
   }
+}
+
+// === NEW BEAM-BASED STRUCTURES ===
+
+// A long beam balanced on a fulcrum with blocks on each end
+function buildBalancingBeam(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  _floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  const fulcrumHeight = blockHeight * 3;
+  const fulcrumWidth = 25;
+  const beamWidth = 180;
+  const beamHeight = blockHeight * 0.6;
+
+  // Fulcrum (small triangular-ish support)
+  blocks.push(createBlock(
+    centerX - fulcrumWidth / 2,
+    groundY - fulcrumHeight,
+    fulcrumWidth,
+    fulcrumHeight,
+    BlockType.Stone
+  ));
+
+  // Long balancing beam on top
+  blocks.push(createBlock(
+    centerX - beamWidth / 2,
+    groundY - fulcrumHeight - beamHeight - 2,
+    beamWidth,
+    beamHeight,
+    BlockType.Beam
+  ));
+
+  // Blocks on left side of beam
+  const leftX = centerX - beamWidth / 2 + 10;
+  for (let i = 0; i < 2; i++) {
+    blocks.push(createBlock(
+      leftX,
+      groundY - fulcrumHeight - beamHeight - (i + 2) * (blockHeight + gap),
+      35,
+      blockHeight,
+      getType()
+    ));
+  }
+
+  // Blocks on right side of beam
+  const rightX = centerX + beamWidth / 2 - 45;
+  for (let i = 0; i < 3; i++) {
+    blocks.push(createBlock(
+      rightX,
+      groundY - fulcrumHeight - beamHeight - (i + 2) * (blockHeight + gap),
+      35,
+      blockHeight,
+      getType()
+    ));
+  }
+}
+
+// Seesaw with tower on one side
+function buildSeesawTower(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  const fulcrumHeight = blockHeight * 2;
+  const fulcrumWidth = 30;
+  const beamWidth = 160;
+  const beamHeight = blockHeight * 0.5;
+
+  // Fulcrum
+  blocks.push(createBlock(
+    centerX - fulcrumWidth / 2,
+    groundY - fulcrumHeight,
+    fulcrumWidth,
+    fulcrumHeight,
+    BlockType.Steel
+  ));
+
+  // Seesaw beam
+  blocks.push(createBlock(
+    centerX - beamWidth / 2,
+    groundY - fulcrumHeight - beamHeight - 2,
+    beamWidth,
+    beamHeight,
+    BlockType.Beam
+  ));
+
+  // Tower on left side
+  const towerX = centerX - beamWidth / 2 + 5;
+  const towerWidth = 40;
+  const towerFloors = Math.min(floors, 5);
+
+  for (let floor = 0; floor < towerFloors; floor++) {
+    const y = groundY - fulcrumHeight - beamHeight - (floor + 2) * (blockHeight + gap);
+    blocks.push(createBlock(towerX, y, towerWidth, blockHeight, getType()));
+  }
+
+  // Single heavy block on right side (counterweight)
+  blocks.push(createBlock(
+    centerX + beamWidth / 2 - 50,
+    groundY - fulcrumHeight - beamHeight - blockHeight - gap - 2,
+    45,
+    blockHeight * 1.5,
+    BlockType.Steel
+  ));
+}
+
+// Bridge spanning two pillars
+function buildBridgeStructure(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  const pillarWidth = 35;
+  const pillarHeight = blockHeight * 4;
+  const bridgeSpan = 120;
+  const bridgeHeight = blockHeight * 0.6;
+
+  // Left pillar
+  const leftPillarX = centerX - bridgeSpan / 2 - pillarWidth / 2;
+  for (let i = 0; i < 2; i++) {
+    blocks.push(createBlock(
+      leftPillarX,
+      groundY - (i + 1) * pillarHeight / 2,
+      pillarWidth,
+      pillarHeight / 2,
+      BlockType.Stone
+    ));
+  }
+
+  // Right pillar
+  const rightPillarX = centerX + bridgeSpan / 2 - pillarWidth / 2;
+  for (let i = 0; i < 2; i++) {
+    blocks.push(createBlock(
+      rightPillarX,
+      groundY - (i + 1) * pillarHeight / 2,
+      pillarWidth,
+      pillarHeight / 2,
+      BlockType.Stone
+    ));
+  }
+
+  // Bridge beam spanning the pillars
+  const bridgeWidth = bridgeSpan + pillarWidth;
+  blocks.push(createBlock(
+    centerX - bridgeWidth / 2,
+    groundY - pillarHeight - bridgeHeight - 2,
+    bridgeWidth,
+    bridgeHeight,
+    BlockType.Beam
+  ));
+
+  // Tower on top of bridge
+  const towerWidth = 50;
+  const towerFloors = Math.min(floors - 2, 4);
+  for (let floor = 0; floor < towerFloors; floor++) {
+    const y = groundY - pillarHeight - bridgeHeight - (floor + 2) * (blockHeight + gap);
+    blocks.push(createBlock(centerX - towerWidth / 2, y, towerWidth, blockHeight, getType()));
+  }
+}
+
+// Cantilever - beam extending out from a weighted base
+function buildCantilever(
+  blocks: Block[],
+  centerX: number,
+  groundY: number,
+  _floors: number,
+  blockHeight: number,
+  gap: number,
+  getType: () => BlockType
+): void {
+  const baseWidth = 60;
+  const baseFloors = 3;
+  const beamLength = 120;
+  const beamHeight = blockHeight * 0.7;
+
+  // Heavy base (anchor)
+  const baseX = centerX - 40;
+  for (let floor = 0; floor < baseFloors; floor++) {
+    const y = groundY - (floor + 1) * (blockHeight + gap);
+    blocks.push(createBlock(baseX, y, baseWidth, blockHeight, BlockType.Steel));
+  }
+
+  // Cantilever beam extending to the right
+  const beamY = groundY - baseFloors * (blockHeight + gap) - beamHeight - 2;
+  blocks.push(createBlock(
+    baseX,
+    beamY,
+    beamLength,
+    beamHeight,
+    BlockType.Beam
+  ));
+
+  // Blocks stacked on the extending part of the beam
+  const stackX = baseX + beamLength - 40;
+  for (let i = 0; i < 3; i++) {
+    blocks.push(createBlock(
+      stackX,
+      beamY - (i + 1) * (blockHeight + gap),
+      35,
+      blockHeight,
+      getType()
+    ));
+  }
+
+  // More weight on top of base to anchor
+  blocks.push(createBlock(
+    baseX + 5,
+    beamY - blockHeight - gap,
+    baseWidth - 10,
+    blockHeight,
+    BlockType.Stone
+  ));
 }
 
 // Count remaining blocks

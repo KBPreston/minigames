@@ -7,6 +7,7 @@ export enum BlockType {
   Wood = 'wood',
   Stone = 'stone',
   Steel = 'steel',
+  Beam = 'beam', // Long horizontal beam - good for balancing
 }
 
 export enum BombType {
@@ -14,6 +15,25 @@ export enum BombType {
   CartoonBomb = 'cartoon',   // Big radius, medium force
   Cluster = 'cluster',       // Multiple small explosions
   Shockwave = 'shockwave',   // Small damage radius but huge push force
+}
+
+// Contact point between two blocks
+export interface ContactPoint {
+  x: number;
+  y: number;
+  normalX: number;
+  normalY: number;
+  penetration: number;
+  blockA: Block;
+  blockB: Block;
+}
+
+// Support relationship between blocks
+export interface SupportInfo {
+  supportedBy: Block[];      // Blocks this one rests on
+  supportPoints: Vec2[];     // Where the support contacts are
+  supportBaseLeft: number;   // Left edge of support base
+  supportBaseRight: number;  // Right edge of support base
 }
 
 export interface Block {
@@ -26,9 +46,23 @@ export interface Block {
   vy: number;
   type: BlockType;
   destroyed: boolean;
-  settled: boolean; // Block has stopped moving
-  rotation: number; // Visual rotation in radians
+  settled: boolean;
+  rotation: number;
   rotationVel: number;
+
+  // New physics properties
+  mass: number;              // Calculated from type and size
+  momentOfInertia: number;   // Rotational inertia
+  torque: number;            // Current torque being applied
+
+  // Support and stability
+  isSupported: boolean;      // Is this block resting on something?
+  isTipping: boolean;        // Is the block currently tipping over?
+  supportInfo: SupportInfo | null;
+
+  // Friction state
+  isSliding: boolean;        // Currently sliding (kinetic friction)
+  staticFrictionExceeded: boolean; // Has overcome static friction this frame
 }
 
 export interface Explosion {
@@ -47,17 +81,23 @@ export interface Tower {
 }
 
 // Block properties by type
-export const BLOCK_PROPERTIES: Record<BlockType, { color: string; strength: number; weight: number }> = {
-  [BlockType.Wood]: { color: '#c4a35a', strength: 1, weight: 1 },
-  [BlockType.Stone]: { color: '#94a3b8', strength: 2, weight: 1.5 },
-  [BlockType.Steel]: { color: '#64748b', strength: 3, weight: 2 },
+export const BLOCK_PROPERTIES: Record<BlockType, {
+  color: string;
+  strength: number;
+  weight: number;
+  friction: number;  // Coefficient of friction
+}> = {
+  [BlockType.Wood]: { color: '#c4a35a', strength: 1, weight: 1, friction: 0.5 },
+  [BlockType.Stone]: { color: '#94a3b8', strength: 2, weight: 1.5, friction: 0.6 },
+  [BlockType.Steel]: { color: '#64748b', strength: 3, weight: 2, friction: 0.3 },
+  [BlockType.Beam]: { color: '#8b5a2b', strength: 1, weight: 0.8, friction: 0.4 }, // Lighter, longer
 };
 
 // Bomb properties by type
 export const BOMB_PROPERTIES: Record<BombType, {
   radius: number;
   force: number;
-  destroyRadius: number; // Multiplier of radius where blocks are destroyed
+  destroyRadius: number;
   color: string;
   secondaryColor: string;
   name: string;
@@ -101,6 +141,11 @@ export const BOMB_PROPERTIES: Record<BombType, {
   },
 };
 
-export const GRAVITY = 800; // pixels per second squared
+export const GRAVITY = 800;
 export const BOMBS_PER_LEVEL = 3;
-export const EXPLOSION_DURATION = 350; // ms
+export const EXPLOSION_DURATION = 350;
+
+// Physics constants
+export const STATIC_FRICTION = 0.6;   // Coefficient - force needed to start sliding
+export const KINETIC_FRICTION = 0.4;  // Coefficient - force during sliding (lower)
+export const TIPPING_THRESHOLD = 0.7; // How far COM can be from support center before tipping (0-1)
