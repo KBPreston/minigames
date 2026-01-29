@@ -59,7 +59,10 @@ export function Menu() {
       <header className="px-4 pt-4 pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-extrabold font-display tracking-tight">Mini Games</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-extrabold font-display tracking-tight">Mini Games</h1>
+              <span className="text-xs text-gray-500 font-display tabular-nums">v{__APP_VERSION__}</span>
+            </div>
             <p className="text-sm text-gray-400">Choose a game to play</p>
           </div>
           <button
