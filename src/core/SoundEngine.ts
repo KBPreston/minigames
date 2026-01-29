@@ -49,8 +49,8 @@ class SoundEngineClass {
 
   private updateMasterVolume() {
     if (this.masterGain) {
-      // Convert 0-100 to 0-0.5 (max volume is 0.5 to avoid distortion)
-      this.masterGain.gain.value = (this.volume / 100) * 0.5;
+      // Convert 0-100 to 0-0.35 (lower max volume for gentler sounds)
+      this.masterGain.gain.value = (this.volume / 100) * 0.35;
     }
   }
 
@@ -162,11 +162,11 @@ class SoundEngineClass {
   /** Soft click for buttons and taps */
   uiClick() {
     this.playTone({
-      frequency: 800,
-      duration: 0.08,
+      frequency: 880,
+      duration: 0.06,
       type: 'sine',
-      gain: 0.2,
-      attack: 0.005,
+      gain: 0.12,
+      attack: 0.003,
       decay: 0.03,
     });
   }
@@ -215,40 +215,40 @@ class SoundEngineClass {
   // Game Sounds - Generic
   // ============================================
 
-  /** Piece placed / basic action */
+  /** Piece placed / basic action - soft thud */
   place() {
     this.playTone({
-      frequency: 220,
-      duration: 0.1,
-      type: 'triangle',
-      gain: 0.25,
-      attack: 0.01,
+      frequency: 180,
+      duration: 0.08,
+      type: 'sine',
+      gain: 0.12,
+      attack: 0.005,
       decay: 0.04,
     });
     this.playNoise({
-      duration: 0.06,
-      gain: 0.1,
-      filter: { type: 'highpass', frequency: 2000 },
+      duration: 0.04,
+      gain: 0.05,
+      filter: { type: 'highpass', frequency: 3000 },
     });
   }
 
-  /** Invalid action / can't place */
+  /** Invalid action / can't place - gentle "nope" sound */
   invalid() {
     this.playTones([
-      { frequency: 200, duration: 0.1, type: 'square', gain: 0.15, detune: -10 },
-      { frequency: 180, duration: 0.12, type: 'square', gain: 0.12, detune: 10 },
-    ], 0.08);
+      { frequency: 280, duration: 0.08, type: 'triangle', gain: 0.1 },
+      { frequency: 220, duration: 0.1, type: 'triangle', gain: 0.08 },
+    ], 0.06);
   }
 
-  /** Select piece / change selection */
+  /** Select piece / change selection - light tap */
   select() {
     this.playTone({
-      frequency: 500,
-      duration: 0.06,
+      frequency: 660,
+      duration: 0.05,
       type: 'sine',
-      gain: 0.15,
-      attack: 0.005,
-      decay: 0.02,
+      gain: 0.1,
+      attack: 0.003,
+      decay: 0.025,
     });
   }
 
@@ -256,88 +256,91 @@ class SoundEngineClass {
   // Game Sounds - Clearing / Success
   // ============================================
 
-  /** Single line/row clear */
+  /** Single line/row clear - bright and pleasant */
   clearSingle() {
     this.playTones([
-      { frequency: 400, duration: 0.15, type: 'sine', gain: 0.3 },
-      { frequency: 500, duration: 0.15, type: 'sine', gain: 0.25 },
-      { frequency: 600, duration: 0.2, type: 'sine', gain: 0.2 },
-    ], 0.05);
-  }
-
-  /** Multiple lines cleared */
-  clearMulti(count: number) {
-    const baseFreq = 400;
-    const tones: ToneConfig[] = [];
-
-    for (let i = 0; i <= Math.min(count, 4); i++) {
-      tones.push({
-        frequency: baseFreq + i * 100,
-        duration: 0.15 + i * 0.03,
-        type: 'sine',
-        gain: 0.25 - i * 0.03,
-      });
-    }
-
-    this.playTones(tones, 0.06);
-  }
-
-  /** Combo hit */
-  combo(multiplier: number) {
-    const baseFreq = 500 + Math.min(multiplier, 5) * 50;
-    this.playTones([
-      { frequency: baseFreq, duration: 0.1, type: 'sine', gain: 0.25 },
-      { frequency: baseFreq * 1.25, duration: 0.12, type: 'sine', gain: 0.2 },
-      { frequency: baseFreq * 1.5, duration: 0.15, type: 'sine', gain: 0.15 },
+      { frequency: 523, duration: 0.1, type: 'sine', gain: 0.15 },
+      { frequency: 659, duration: 0.1, type: 'sine', gain: 0.12 },
+      { frequency: 784, duration: 0.12, type: 'sine', gain: 0.1 },
     ], 0.04);
   }
 
-  /** Burst/explosion effect */
+  /** Multiple lines cleared - musical ascending arpeggio */
+  clearMulti(count: number) {
+    // Use pentatonic scale for always-pleasant sounds
+    const pentatonic = [523, 587, 659, 784, 880]; // C5, D5, E5, G5, A5
+    const tones: ToneConfig[] = [];
+
+    for (let i = 0; i < Math.min(count, 5); i++) {
+      tones.push({
+        frequency: pentatonic[i],
+        duration: 0.1,
+        type: 'sine',
+        gain: 0.12 - i * 0.015,
+        attack: 0.01,
+        decay: 0.05,
+      });
+    }
+
+    this.playTones(tones, 0.05);
+  }
+
+  /** Combo hit - sparkly rising tones */
+  combo(multiplier: number) {
+    const baseFreq = 600 + Math.min(multiplier, 5) * 80;
+    this.playTones([
+      { frequency: baseFreq, duration: 0.08, type: 'sine', gain: 0.12, attack: 0.005 },
+      { frequency: baseFreq * 1.2, duration: 0.08, type: 'sine', gain: 0.1, attack: 0.005 },
+      { frequency: baseFreq * 1.5, duration: 0.1, type: 'sine', gain: 0.08, attack: 0.005 },
+    ], 0.03);
+  }
+
+  /** Burst/explosion effect - satisfying pop, not harsh */
   burst() {
     this.playNoise({
-      duration: 0.2,
-      gain: 0.25,
-      attack: 0.01,
-      decay: 0.1,
-      filter: { type: 'bandpass', frequency: 800, Q: 1 },
+      duration: 0.12,
+      gain: 0.08,
+      attack: 0.005,
+      decay: 0.08,
+      filter: { type: 'bandpass', frequency: 1200, Q: 2 },
     });
     this.playTones([
-      { frequency: 300, duration: 0.15, type: 'sine', gain: 0.3 },
-      { frequency: 450, duration: 0.12, type: 'sine', gain: 0.2 },
-    ], 0.03);
+      { frequency: 400, duration: 0.1, type: 'sine', gain: 0.15 },
+      { frequency: 600, duration: 0.08, type: 'sine', gain: 0.1 },
+    ], 0.02);
   }
 
   // ============================================
   // Game Sounds - Merge (Snap Merge specific)
   // ============================================
 
-  /** Block dropping */
+  /** Block dropping - soft landing */
   drop() {
     this.playTone({
-      frequency: 150,
-      duration: 0.15,
-      type: 'triangle',
-      gain: 0.2,
-      attack: 0.01,
-      decay: 0.08,
+      frequency: 180,
+      duration: 0.1,
+      type: 'sine',
+      gain: 0.1,
+      attack: 0.005,
+      decay: 0.06,
     });
   }
 
-  /** Block merge */
+  /** Block merge - satisfying blend sound */
   merge(value: number) {
     // Higher values get higher pitched sounds
-    const pitch = Math.min(Math.log2(value) * 60 + 200, 1000);
+    const pitch = Math.min(Math.log2(value) * 50 + 300, 900);
     this.playTones([
-      { frequency: pitch, duration: 0.12, type: 'sine', gain: 0.3 },
-      { frequency: pitch * 1.5, duration: 0.15, type: 'triangle', gain: 0.2 },
-    ], 0.05);
+      { frequency: pitch, duration: 0.1, type: 'sine', gain: 0.15, attack: 0.01 },
+      { frequency: pitch * 1.5, duration: 0.12, type: 'sine', gain: 0.1, attack: 0.01 },
+    ], 0.04);
 
-    // Add a satisfying "pop" for high values
+    // Add a soft sparkle for high values
     if (value >= 64) {
       this.playNoise({
-        duration: 0.1,
-        gain: 0.15,
-        filter: { type: 'highpass', frequency: 3000 },
+        duration: 0.08,
+        gain: 0.06,
+        filter: { type: 'highpass', frequency: 4000 },
       });
     }
   }
@@ -412,55 +415,51 @@ class SoundEngineClass {
   // Game State Sounds
   // ============================================
 
-  /** Game start */
+  /** Game start - inviting ascending tone */
   gameStart() {
     this.playTones([
-      { frequency: 330, duration: 0.1, type: 'sine', gain: 0.2 },
-      { frequency: 440, duration: 0.1, type: 'sine', gain: 0.22 },
-      { frequency: 550, duration: 0.15, type: 'sine', gain: 0.2 },
-    ], 0.08);
+      { frequency: 392, duration: 0.1, type: 'sine', gain: 0.12, attack: 0.01 },
+      { frequency: 523, duration: 0.1, type: 'sine', gain: 0.12, attack: 0.01 },
+      { frequency: 659, duration: 0.12, type: 'sine', gain: 0.1, attack: 0.01 },
+    ], 0.07);
   }
 
-  /** Game over */
+  /** Game over - melancholy but gentle descending tone */
   gameOver() {
     this.playTones([
-      { frequency: 400, duration: 0.2, type: 'sine', gain: 0.3 },
-      { frequency: 350, duration: 0.25, type: 'sine', gain: 0.25 },
-      { frequency: 280, duration: 0.3, type: 'sine', gain: 0.2 },
-      { frequency: 200, duration: 0.4, type: 'sine', gain: 0.15 },
-    ], 0.15);
+      { frequency: 392, duration: 0.2, type: 'sine', gain: 0.15, attack: 0.02 },
+      { frequency: 330, duration: 0.25, type: 'sine', gain: 0.12, attack: 0.02 },
+      { frequency: 262, duration: 0.35, type: 'sine', gain: 0.1, attack: 0.02 },
+    ], 0.18);
   }
 
-  /** New high score celebration */
+  /** New high score celebration - triumphant but not overwhelming */
   newHighScore() {
-    // Fanfare!
+    // Fanfare - C major arpeggio
     this.playTones([
-      { frequency: 523, duration: 0.15, type: 'sine', gain: 0.25 },
-      { frequency: 659, duration: 0.15, type: 'sine', gain: 0.25 },
-      { frequency: 784, duration: 0.15, type: 'sine', gain: 0.25 },
-      { frequency: 1047, duration: 0.25, type: 'sine', gain: 0.3 },
-    ], 0.12);
+      { frequency: 523, duration: 0.12, type: 'sine', gain: 0.15, attack: 0.01 },
+      { frequency: 659, duration: 0.12, type: 'sine', gain: 0.15, attack: 0.01 },
+      { frequency: 784, duration: 0.12, type: 'sine', gain: 0.15, attack: 0.01 },
+      { frequency: 1047, duration: 0.2, type: 'sine', gain: 0.18, attack: 0.01 },
+    ], 0.1);
 
-    // Add some sparkle
+    // Gentle sparkle
     setTimeout(() => {
       this.playTones([
-        { frequency: 1200, duration: 0.1, type: 'sine', gain: 0.15 },
-        { frequency: 1400, duration: 0.1, type: 'sine', gain: 0.12 },
-        { frequency: 1600, duration: 0.12, type: 'sine', gain: 0.1 },
-      ], 0.06);
-    }, 400);
+        { frequency: 1200, duration: 0.08, type: 'sine', gain: 0.08 },
+        { frequency: 1400, duration: 0.08, type: 'sine', gain: 0.06 },
+        { frequency: 1600, duration: 0.1, type: 'sine', gain: 0.05 },
+      ], 0.05);
+    }, 350);
   }
 
-  /** Low moves warning */
+  /** Low moves warning - gentle pulse, not alarming */
   warning() {
-    this.playTone({
-      frequency: 200,
-      duration: 0.2,
-      type: 'square',
-      gain: 0.15,
-      attack: 0.01,
-      decay: 0.1,
-    });
+    // Soft "boop boop" instead of harsh buzzer
+    this.playTones([
+      { frequency: 440, duration: 0.12, type: 'sine', gain: 0.1, attack: 0.02, decay: 0.06 },
+      { frequency: 380, duration: 0.15, type: 'sine', gain: 0.08, attack: 0.02, decay: 0.08 },
+    ], 0.15);
   }
 }
 

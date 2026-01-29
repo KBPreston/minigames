@@ -112,6 +112,7 @@ export class GemCrushGame implements GameInstance {
   private liquidWaveTime: number = 0;
   private bubbles: Bubble[] = [];
   private lastBubbleTime: number = 0;
+  private warningPlayed: boolean = false;
 
   // Screen shake
   private screenShake: number = 0;
@@ -729,9 +730,13 @@ export class GemCrushGame implements GameInstance {
       }
     }
 
-    // Play warning sound when liquid is high
-    if (this.liquidLevel > 0.7 && this.liquidLevel < 0.71) {
+    // Play warning sound once when liquid crosses 70%
+    if (this.liquidLevel > 0.7 && !this.warningPlayed) {
       this.api.sounds.warning();
+      this.warningPlayed = true;
+    } else if (this.liquidLevel < 0.5) {
+      // Reset warning when liquid drops back down
+      this.warningPlayed = false;
     }
 
     // Update gem animations
@@ -1116,6 +1121,7 @@ export class GemCrushGame implements GameInstance {
     this.liquidLevel = 0;
     this.liquidWaveTime = 0;
     this.bubbles = [];
+    this.warningPlayed = false;
     this.lastUpdateTime = performance.now();
     this.api.setScore(0);
     this.api.sounds.gameStart();
