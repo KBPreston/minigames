@@ -1,4 +1,4 @@
-// Board generation and space logic for Dice Risk v2 - Ring Board
+// Board generation and space logic for Dice Risk v2 - Multiple Board Shapes
 
 import {
   SpaceType,
@@ -8,9 +8,10 @@ import {
   getBoardSizeForLevel,
 } from './types';
 
+export type BoardShape = 'ring' | 'serpentine' | 'figure8' | 'diamond' | 'spiral' | 'cross';
+
 /**
- * Generate a ring board for the given level
- * Board is a square ring (Monopoly-style loop)
+ * Generate a board for the given level with varying shapes
  */
 export function generateRingBoard(level: number): BoardSpace[] {
   const boardSize = getBoardSizeForLevel(level);
@@ -38,6 +39,14 @@ export function generateRingBoard(level: number): BoardSpace[] {
   placeSpecialSpaces(board, level, boardSize);
 
   return board;
+}
+
+/**
+ * Get the board shape for a given level
+ */
+export function getBoardShape(level: number): BoardShape {
+  const shapes: BoardShape[] = ['ring', 'serpentine', 'figure8', 'diamond', 'spiral', 'cross'];
+  return shapes[(level - 1) % shapes.length];
 }
 
 /**
@@ -251,73 +260,311 @@ export function applySpaceEffect(
   }
 }
 
+export type SpaceDirection = 'right' | 'down' | 'left' | 'up' | 'down-right' | 'down-left' | 'up-right' | 'up-left';
+
+export interface SpacePosition {
+  x: number;
+  y: number;
+  direction: SpaceDirection; // Direction to NEXT space
+}
+
 /**
- * Convert board index to ring position (x, y coordinates)
- * Board is a square ring (perimeter only):
- * For 20 spaces with gridSize=6:
- *     0   1   2   3   4   5
- *    19                   6
- *    18                   7
- *    17                   8
- *    16                   9
- *    15  14  13  12  11  10
+ * Convert board index to position based on current shape
  */
-export function indexToRingPosition(
+export function indexToPosition(
   index: number,
-  boardSize: number
-): { x: number; y: number; side: 'top' | 'right' | 'bottom' | 'left' } {
-  // For a square ring: perimeter = 4 * gridSize - 4 (corners counted once)
-  // So gridSize = (boardSize + 4) / 4
+  boardSize: number,
+  shape: BoardShape
+): SpacePosition {
+  switch (shape) {
+    case 'serpentine':
+      return indexToSerpentinePosition(index, boardSize);
+    case 'figure8':
+      return indexToFigure8Position(index, boardSize);
+    case 'diamond':
+      return indexToDiamondPosition(index, boardSize);
+    case 'spiral':
+      return indexToSpiralPosition(index, boardSize);
+    case 'cross':
+      return indexToCrossPosition(index, boardSize);
+    case 'ring':
+    default:
+      return indexToRingPositionFull(index, boardSize);
+  }
+}
+
+/**
+ * Ring board (Monopoly-style square loop)
+ */
+function indexToRingPositionFull(index: number, boardSize: number): SpacePosition {
   const gridSize = (boardSize + 4) / 4;
 
   // Top side: indices 0 to gridSize-1
   if (index < gridSize) {
-    return { x: index, y: 0, side: 'top' };
+    return { x: index, y: 0, direction: index < gridSize - 1 ? 'right' : 'down' };
   }
 
-  // Right side: indices gridSize to gridSize + (gridSize-2)
-  // (gridSize-2 because top-right and bottom-right corners belong to top/bottom)
+  // Right side
   const rightStart = gridSize;
   const rightCount = gridSize - 2;
   if (index < rightStart + rightCount) {
     const offset = index - rightStart;
-    return { x: gridSize - 1, y: offset + 1, side: 'right' };
+    return { x: gridSize - 1, y: offset + 1, direction: offset < rightCount - 1 ? 'down' : 'down' };
   }
 
-  // Bottom side: indices after right, going right-to-left
+  // Bottom side (right to left)
   const bottomStart = rightStart + rightCount;
   if (index < bottomStart + gridSize) {
     const offset = index - bottomStart;
-    return { x: gridSize - 1 - offset, y: gridSize - 1, side: 'bottom' };
+    return { x: gridSize - 1 - offset, y: gridSize - 1, direction: offset < gridSize - 1 ? 'left' : 'up' };
   }
 
-  // Left side: remaining indices, going bottom-to-top
+  // Left side (bottom to top)
   const leftStart = bottomStart + gridSize;
   const offset = index - leftStart;
-  return { x: 0, y: gridSize - 2 - offset, side: 'left' };
+  return { x: 0, y: gridSize - 2 - offset, direction: offset < gridSize - 3 ? 'up' : 'right' };
 }
 
 /**
- * Get the pixel position for a space on the ring board
+ * Serpentine board (snake pattern)
+ */
+function indexToSerpentinePosition(index: number, boardSize: number): SpacePosition {
+  const cols = 5;
+  const rows = Math.ceil(boardSize / cols);
+  const row = Math.floor(index / cols);
+  const colInRow = index % cols;
+
+  // Alternate direction each row
+  const goingRight = row % 2 === 0;
+  const x = goingRight ? colInRow : cols - 1 - colInRow;
+  const y = row;
+
+  // Determine direction to next space
+  let direction: SpaceDirection;
+  const isLastInRow = colInRow === cols - 1;
+  const isLastRow = row === rows - 1;
+
+  if (isLastInRow && !isLastRow) {
+    direction = 'down';
+  } else if (goingRight) {
+    direction = 'right';
+  } else {
+    direction = 'left';
+  }
+
+  return { x, y, direction };
+}
+
+/**
+ * Figure-8 board (two connected loops)
+ */
+function indexToFigure8Position(index: number, boardSize: number): SpacePosition {
+  const loopSize = Math.floor(boardSize / 2);
+  const halfLoop = Math.floor(loopSize / 2);
+  const isSecondLoop = index >= loopSize;
+  const localIndex = isSecondLoop ? index - loopSize : index;
+
+  // First loop: top circle, second loop: bottom circle
+  const centerY = isSecondLoop ? 4 : 1;
+  const centerX = 2.5;
+
+  if (localIndex < halfLoop) {
+    // Top half of loop (going right)
+    const progress = localIndex / halfLoop;
+    const angle = Math.PI + progress * Math.PI;
+    return {
+      x: centerX + Math.cos(angle) * 2,
+      y: centerY + Math.sin(angle) * 1.2,
+      direction: localIndex < halfLoop - 1 ? 'right' : 'down',
+    };
+  } else {
+    // Bottom half of loop (going left)
+    const progress = (localIndex - halfLoop) / halfLoop;
+    const angle = progress * Math.PI;
+    return {
+      x: centerX + Math.cos(angle) * 2,
+      y: centerY + Math.sin(angle) * 1.2,
+      direction: localIndex < loopSize - 1 ? 'left' : (isSecondLoop ? 'up' : 'down'),
+    };
+  }
+}
+
+/**
+ * Diamond board (rotated square)
+ */
+function indexToDiamondPosition(index: number, boardSize: number): SpacePosition {
+  const sideLength = Math.floor(boardSize / 4);
+  const side = Math.floor(index / sideLength);
+  const posInSide = index % sideLength;
+  const progress = posInSide / sideLength;
+
+  const centerX = 3;
+  const centerY = 3;
+  const radius = 2.5;
+
+  let x: number, y: number, direction: SpaceDirection;
+
+  switch (side) {
+    case 0: // Top-right edge (going down-right)
+      x = centerX + progress * radius;
+      y = centerY - radius + progress * radius;
+      direction = posInSide < sideLength - 1 ? 'down-right' : 'down-left';
+      break;
+    case 1: // Bottom-right edge (going down-left)
+      x = centerX + radius - progress * radius;
+      y = centerY + progress * radius;
+      direction = posInSide < sideLength - 1 ? 'down-left' : 'up-left';
+      break;
+    case 2: // Bottom-left edge (going up-left)
+      x = centerX - progress * radius;
+      y = centerY + radius - progress * radius;
+      direction = posInSide < sideLength - 1 ? 'up-left' : 'up-right';
+      break;
+    default: // Top-left edge (going up-right)
+      x = centerX - radius + progress * radius;
+      y = centerY - progress * radius;
+      direction = posInSide < sideLength - 1 ? 'up-right' : 'down-right';
+      break;
+  }
+
+  return { x, y, direction };
+}
+
+/**
+ * Spiral board (inward spiral)
+ */
+function indexToSpiralPosition(index: number, boardSize: number): SpacePosition {
+  const positions: SpacePosition[] = [];
+  let x = 0, y = 0;
+  let dx = 1, dy = 0;
+  let segmentLength = 6;
+  let segmentPassed = 0;
+  let turnCount = 0;
+
+  for (let i = 0; i < boardSize; i++) {
+    let direction: SpaceDirection;
+    if (dx === 1) direction = 'right';
+    else if (dx === -1) direction = 'left';
+    else if (dy === 1) direction = 'down';
+    else direction = 'up';
+
+    positions.push({ x, y, direction });
+
+    x += dx;
+    y += dy;
+    segmentPassed++;
+
+    if (segmentPassed >= segmentLength) {
+      segmentPassed = 0;
+      // Turn right
+      [dx, dy] = [-dy, dx];
+      turnCount++;
+      if (turnCount % 2 === 0) {
+        segmentLength = Math.max(2, segmentLength - 1);
+      }
+    }
+  }
+
+  // Update last space direction to point to first
+  if (positions.length > 0) {
+    const last = positions[positions.length - 1];
+    const first = positions[0];
+    if (first.x > last.x) last.direction = 'right';
+    else if (first.x < last.x) last.direction = 'left';
+    else if (first.y > last.y) last.direction = 'down';
+    else last.direction = 'up';
+  }
+
+  return positions[index] || { x: 0, y: 0, direction: 'right' };
+}
+
+/**
+ * Cross board (plus shape)
+ */
+function indexToCrossPosition(index: number, boardSize: number): SpacePosition {
+  const armLength = Math.floor(boardSize / 4);
+
+  // Center at (3, 3), arms extend out
+  if (index < armLength) {
+    // Top arm (going down)
+    return { x: 3, y: index, direction: index < armLength - 1 ? 'down' : 'right' };
+  } else if (index < armLength * 2) {
+    // Right arm (going right then down)
+    const pos = index - armLength;
+    return { x: 4 + pos, y: armLength - 1, direction: pos < armLength - 1 ? 'right' : 'down' };
+  } else if (index < armLength * 3) {
+    // Bottom arm (going down then left)
+    const pos = index - armLength * 2;
+    return { x: 3 + armLength, y: armLength + pos, direction: pos < armLength - 1 ? 'down' : 'left' };
+  } else {
+    // Left arm and back to start
+    const pos = index - armLength * 3;
+    const remaining = boardSize - armLength * 3;
+    if (pos < remaining / 2) {
+      return { x: 3 + armLength - 1 - pos, y: armLength * 2 - 1, direction: 'left' };
+    } else {
+      const upPos = pos - Math.floor(remaining / 2);
+      return { x: 3, y: armLength * 2 - 2 - upPos, direction: upPos < remaining / 2 - 1 ? 'up' : 'right' };
+    }
+  }
+}
+
+// Keep the old function name for backwards compatibility
+export function indexToRingPosition(
+  index: number,
+  boardSize: number
+): { x: number; y: number; side: 'top' | 'right' | 'bottom' | 'left' } {
+  const pos = indexToRingPositionFull(index, boardSize);
+  let side: 'top' | 'right' | 'bottom' | 'left' = 'top';
+  if (pos.direction === 'right') side = 'top';
+  else if (pos.direction === 'down') side = 'right';
+  else if (pos.direction === 'left') side = 'bottom';
+  else side = 'left';
+  return { x: pos.x, y: pos.y, side };
+}
+
+/**
+ * Get the pixel position for a space on any board shape
  */
 export function getSpacePosition(
   index: number,
   boardSize: number,
   cellSize: number,
   offsetX: number,
-  offsetY: number
+  offsetY: number,
+  shape: BoardShape = 'ring'
 ): { x: number; y: number } {
-  const { x, y } = indexToRingPosition(index, boardSize);
+  const pos = indexToPosition(index, boardSize, shape);
   return {
-    x: offsetX + x * cellSize + cellSize / 2,
-    y: offsetY + y * cellSize + cellSize / 2,
+    x: offsetX + pos.x * cellSize + cellSize / 2,
+    y: offsetY + pos.y * cellSize + cellSize / 2,
   };
 }
 
 /**
- * Get the grid dimensions for a board size
- * For a square ring: perimeter = 4 * gridSize - 4
- * So gridSize = (boardSize + 4) / 4
+ * Get grid size for any shape (used for layout calculations)
+ */
+export function getGridSize(boardSize: number, shape: BoardShape): { cols: number; rows: number } {
+  switch (shape) {
+    case 'serpentine':
+      return { cols: 5, rows: Math.ceil(boardSize / 5) };
+    case 'figure8':
+      return { cols: 6, rows: 6 };
+    case 'diamond':
+      return { cols: 7, rows: 7 };
+    case 'spiral':
+      return { cols: 7, rows: 7 };
+    case 'cross':
+      return { cols: 8, rows: Math.floor(boardSize / 4) * 2 };
+    case 'ring':
+    default:
+      const ringSize = (boardSize + 4) / 4;
+      return { cols: ringSize, rows: ringSize };
+  }
+}
+
+/**
+ * Get the grid dimensions for a board size (legacy - ring only)
  */
 export function getRingGridSize(boardSize: number): number {
   return (boardSize + 4) / 4;

@@ -23,9 +23,12 @@ import {
   generateRingBoard,
   getSpaceColor,
   applySpaceEffect,
-  indexToRingPosition,
+  indexToPosition,
   getSpacePosition,
-  getRingGridSize,
+  getGridSize,
+  getBoardShape,
+  BoardShape,
+  SpaceDirection,
 } from './board';
 
 const DICE_ROLL_DURATION = 1500;
@@ -40,6 +43,7 @@ export class DiceRiskGame implements GameInstance {
 
   private board: BoardSpace[] = [];
   private boardSize: number = 20;
+  private boardShape: BoardShape = 'ring';
   private position: number = 0;
   private score: number = 0;
   private dicePool: number = 10;
@@ -108,14 +112,14 @@ export class DiceRiskGame implements GameInstance {
     const availWidth = rect.width - padding * 2;
     const availHeight = rect.height - padding * 2 - statusHeight - dicePoolHeight - buttonAreaHeight;
 
-    // Calculate cell size for ring board
-    const gridSize = getRingGridSize(this.boardSize);
-    const maxCellWidth = Math.floor(availWidth / gridSize);
-    const maxCellHeight = Math.floor(availHeight / gridSize);
+    // Calculate cell size based on board shape
+    const gridDims = getGridSize(this.boardSize, this.boardShape);
+    const maxCellWidth = Math.floor(availWidth / gridDims.cols);
+    const maxCellHeight = Math.floor(availHeight / gridDims.rows);
     this.cellSize = Math.min(maxCellWidth, maxCellHeight, 70);
 
-    const boardWidth = this.cellSize * gridSize;
-    const boardHeight = this.cellSize * gridSize;
+    const boardWidth = this.cellSize * gridDims.cols;
+    const boardHeight = this.cellSize * gridDims.rows;
 
     this.boardOffsetX = (rect.width - boardWidth) / 2;
     this.boardOffsetY = statusHeight + (availHeight - boardHeight) / 2;
@@ -279,7 +283,8 @@ export class DiceRiskGame implements GameInstance {
       this.boardSize,
       this.cellSize,
       this.boardOffsetX,
-      this.boardOffsetY
+      this.boardOffsetY,
+      this.boardShape
     );
 
     // Apply score multiplier to positive point gains
@@ -444,7 +449,8 @@ export class DiceRiskGame implements GameInstance {
       this.dicePool += bonusDice;
     }
 
-    // Regenerate board for new level
+    // Update board shape and regenerate board
+    this.boardShape = getBoardShape(this.level);
     this.board = generateRingBoard(this.level);
     // Keep position but wrap if needed
     this.position = this.position % this.boardSize;
@@ -568,14 +574,17 @@ export class DiceRiskGame implements GameInstance {
   }
 
   private drawBoard() {
-    const { ctx, cellSize, boardOffsetX, boardOffsetY, boardSize } = this;
+    const { ctx, cellSize, boardOffsetX, boardOffsetY, boardSize, boardShape } = this;
+
+    // First draw path connectors between spaces
+    this.drawPathConnectors();
 
     for (let i = 0; i < boardSize; i++) {
       const space = this.board[i];
-      const { x, y } = indexToRingPosition(i, boardSize);
+      const pos = indexToPosition(i, boardSize, boardShape);
 
-      const px = boardOffsetX + x * cellSize;
-      const py = boardOffsetY + y * cellSize;
+      const px = boardOffsetX + pos.x * cellSize;
+      const py = boardOffsetY + pos.y * cellSize;
       const pad = 2;
 
       // Draw space background
@@ -611,6 +620,26 @@ export class DiceRiskGame implements GameInstance {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       ctx.fillText(String(i), px + pad + 3, py + pad + 2);
+    }
+  }
+
+  /** Draw connecting lines between adjacent spaces */
+  private drawPathConnectors() {
+    const { ctx, cellSize, boardOffsetX, boardOffsetY, boardSize, boardShape } = this;
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = cellSize * 0.15;
+    ctx.lineCap = 'round';
+
+    for (let i = 0; i < boardSize; i++) {
+      const nextI = (i + 1) % boardSize;
+      const pos1 = getSpacePosition(i, boardSize, cellSize, boardOffsetX, boardOffsetY, boardShape);
+      const pos2 = getSpacePosition(nextI, boardSize, cellSize, boardOffsetX, boardOffsetY, boardShape);
+
+      ctx.beginPath();
+      ctx.moveTo(pos1.x, pos1.y);
+      ctx.lineTo(pos2.x, pos2.y);
+      ctx.stroke();
     }
   }
 
@@ -679,63 +708,68 @@ export class DiceRiskGame implements GameInstance {
     ctx.fill();
   }
 
-  /** Draw direction arrows showing the path around the ring */
+  /** Draw echelon/chevron arrows showing direction along the path */
   private drawDirectionArrows() {
-    const { ctx, cellSize, boardOffsetX, boardOffsetY, boardSize } = this;
-    const gridSize = getRingGridSize(boardSize);
+    const { cellSize, boardOffsetX, boardOffsetY, boardSize, boardShape } = this;
 
-    // Draw arrows at key positions (corners and midpoints)
-    const arrowPositions = [
-      Math.floor(gridSize / 2), // Top middle
-      gridSize, // Right top
-      gridSize + Math.floor((gridSize - 2) / 2), // Right middle
-      gridSize * 2 - 1, // Bottom right corner area
-      gridSize * 2 + Math.floor(gridSize / 2), // Bottom middle
-      gridSize * 3 - 1, // Left bottom corner area
-      gridSize * 3 + Math.floor((gridSize - 2) / 2), // Left middle
-    ];
+    // Draw chevron arrows at regular intervals along the path
+    const arrowInterval = Math.max(3, Math.floor(boardSize / 7));
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    for (let i = 1; i < boardSize; i += arrowInterval) {
+      const pos = indexToPosition(i, boardSize, boardShape);
+      const px = boardOffsetX + pos.x * cellSize + cellSize / 2;
+      const py = boardOffsetY + pos.y * cellSize + cellSize / 2;
 
-    for (const idx of arrowPositions) {
-      if (idx >= boardSize) continue;
+      // Get angle from direction
+      const angle = this.directionToAngle(pos.direction);
 
-      const { x, y, side } = indexToRingPosition(idx, boardSize);
-      const px = boardOffsetX + x * cellSize + cellSize / 2;
-      const py = boardOffsetY + y * cellSize + cellSize / 2;
-
-      // Determine arrow direction based on side
-      let angle = 0;
-      switch (side) {
-        case 'top': angle = 0; break; // pointing right
-        case 'right': angle = Math.PI / 2; break; // pointing down
-        case 'bottom': angle = Math.PI; break; // pointing left
-        case 'left': angle = -Math.PI / 2; break; // pointing up
-      }
-
-      this.drawArrow(px, py, angle, cellSize * 0.15);
+      // Draw double chevron (echelon arrows)
+      this.drawChevronArrows(px, py, angle, cellSize * 0.2);
     }
   }
 
-  /** Draw a small arrow */
-  private drawArrow(x: number, y: number, angle: number, size: number) {
+  /** Convert direction to angle in radians */
+  private directionToAngle(direction: SpaceDirection): number {
+    switch (direction) {
+      case 'right': return 0;
+      case 'down-right': return Math.PI / 4;
+      case 'down': return Math.PI / 2;
+      case 'down-left': return Math.PI * 3 / 4;
+      case 'left': return Math.PI;
+      case 'up-left': return -Math.PI * 3 / 4;
+      case 'up': return -Math.PI / 2;
+      case 'up-right': return -Math.PI / 4;
+      default: return 0;
+    }
+  }
+
+  /** Draw echelon/chevron arrows (»») */
+  private drawChevronArrows(x: number, y: number, angle: number, size: number) {
     const { ctx } = this;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
 
-    ctx.beginPath();
-    ctx.moveTo(size, 0);
-    ctx.lineTo(-size * 0.5, -size * 0.6);
-    ctx.lineTo(-size * 0.5, size * 0.6);
-    ctx.closePath();
-    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = size * 0.3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Draw two chevrons (>>)
+    for (let i = 0; i < 2; i++) {
+      const offset = (i - 0.5) * size * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(offset - size * 0.4, -size * 0.5);
+      ctx.lineTo(offset + size * 0.3, 0);
+      ctx.lineTo(offset - size * 0.4, size * 0.5);
+      ctx.stroke();
+    }
 
     ctx.restore();
   }
 
   private drawPlayer() {
-    const { ctx, cellSize, boardOffsetX, boardOffsetY, boardSize, moveAnimation } = this;
+    const { ctx, cellSize, boardOffsetX, boardOffsetY, boardSize, boardShape, moveAnimation } = this;
 
     let pos: { x: number; y: number };
 
@@ -754,14 +788,16 @@ export class DiceRiskGame implements GameInstance {
         boardSize,
         cellSize,
         boardOffsetX,
-        boardOffsetY
+        boardOffsetY,
+        boardShape
       );
       const nextPos = getSpacePosition(
         nextSpace,
         boardSize,
         cellSize,
         boardOffsetX,
-        boardOffsetY
+        boardOffsetY,
+        boardShape
       );
 
       // Hop animation (arc)
@@ -778,7 +814,8 @@ export class DiceRiskGame implements GameInstance {
         boardSize,
         cellSize,
         boardOffsetX,
-        boardOffsetY
+        boardOffsetY,
+        boardShape
       );
     }
 
@@ -1092,6 +1129,7 @@ export class DiceRiskGame implements GameInstance {
   start() {
     this.level = 1;
     this.boardSize = getBoardSizeForLevel(this.level);
+    this.boardShape = getBoardShape(this.level);
     this.board = generateRingBoard(this.level);
     this.position = 0;
     this.score = 0;
