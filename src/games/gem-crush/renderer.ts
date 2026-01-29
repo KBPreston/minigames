@@ -17,9 +17,11 @@ export function drawGem(
   const gemSize = size - padding * 2;
   const centerX = x + size / 2;
   const centerY = y + size / 2 + gem.offsetY;
-  const radius = (gemSize / 2) * gem.scale;
+  const scale = Math.max(0, gem.scale);
+  const radius = (gemSize / 2) * scale;
 
-  if (radius <= 0) return;
+  // Don't draw if radius is too small
+  if (radius < 1) return;
 
   ctx.save();
 

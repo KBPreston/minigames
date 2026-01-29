@@ -734,7 +734,7 @@ export class GemCrushGame implements GameInstance {
           const [row, col] = key.split(',').map(Number);
           const gem = this.grid[row][col];
           if (gem) {
-            gem.scale = 1 - this.clearProgress;
+            gem.scale = Math.max(0, 1 - this.clearProgress);
           }
         }
 
