@@ -3,22 +3,17 @@ import {
   Grid,
   Position,
   Gem,
-  HintMove,
   GRID_COLS,
   GRID_ROWS,
 } from './types';
 import {
   initializeGrid,
-  areAdjacent,
-  swapGems,
   findMatches,
   analyzeMatches,
   getSpecialGemClearPositions,
   getColorMatchPositions,
   applyGravity,
   fillEmptyCells,
-  wouldSwapMatch,
-  findValidMove,
   isGameOver,
   getComboWord,
   calculateMatchScore,
@@ -27,7 +22,6 @@ import {
 import {
   drawGem,
   drawGridBackground,
-  drawSwapAnimation,
   drawLineBlasterEffect,
   drawBombEffect,
   drawRainbowEffect,
@@ -50,7 +44,7 @@ import {
   isDefeatComplete,
 } from '../../core/effects';
 
-type GameState = 'idle' | 'swapping' | 'reversing' | 'clearing' | 'falling' | 'checking' | 'defeat';
+type GameState = 'idle' | 'sliding' | 'snapping' | 'clearing' | 'falling' | 'defeat';
 
 interface SpecialEffect {
   type: 'line_h' | 'line_v' | 'bomb' | 'rainbow';
@@ -58,6 +52,14 @@ interface SpecialEffect {
   y: number;
   progress: number;
   positions?: { x: number; y: number }[];
+}
+
+interface SlideState {
+  type: 'row' | 'col';
+  index: number;
+  offset: number; // Current pixel offset during drag
+  startX: number;
+  startY: number;
 }
 
 export class GemCrushGame implements GameInstance {
@@ -71,14 +73,19 @@ export class GemCrushGame implements GameInstance {
   private cascadeLevel: number = 1;
 
   private gameState: GameState = 'idle';
-  private selectedGem: Position | null = null;
 
-  // Animation state
-  private swapFrom: Position | null = null;
-  private swapTo: Position | null = null;
-  private swapProgress: number = 0;
-  private swapStartTime: number = 0;
-  private readonly SWAP_DURATION = 200;
+  // Slide state for row/column dragging
+  private slideState: SlideState | null = null;
+  private isDragging: boolean = false;
+  private dragStartPos: { x: number; y: number } | null = null;
+  private dragStartCell: Position | null = null;
+
+  // Snap animation
+  private snapProgress: number = 0;
+  private snapStartTime: number = 0;
+  private snapFrom: number = 0;
+  private snapTo: number = 0;
+  private readonly SNAP_DURATION = 150;
 
   private clearingPositions: Set<string> = new Set();
   private clearProgress: number = 0;
@@ -89,11 +96,6 @@ export class GemCrushGame implements GameInstance {
   private fallProgress: number = 0;
   private fallStartTime: number = 0;
   private readonly FALL_DURATION = 300;
-
-  // Hint system
-  private hintMove: HintMove | null = null;
-  private lastInteractionTime: number = 0;
-  private readonly HINT_DELAY = 5000;
 
   // Screen shake
   private screenShake: number = 0;
@@ -165,6 +167,7 @@ export class GemCrushGame implements GameInstance {
     this.container.addEventListener('mousedown', this.handleMouseDown);
     this.container.addEventListener('mousemove', this.handleMouseMove);
     this.container.addEventListener('mouseup', this.handleMouseUp);
+    this.container.addEventListener('mouseleave', this.handleMouseUp);
   }
 
   private removeEventListeners() {
@@ -174,6 +177,7 @@ export class GemCrushGame implements GameInstance {
     this.container.removeEventListener('mousedown', this.handleMouseDown);
     this.container.removeEventListener('mousemove', this.handleMouseMove);
     this.container.removeEventListener('mouseup', this.handleMouseUp);
+    this.container.removeEventListener('mouseleave', this.handleMouseUp);
   }
 
   private screenToGrid(screenX: number, screenY: number): Position | null {
@@ -196,254 +200,174 @@ export class GemCrushGame implements GameInstance {
   private handleTouchStart = (e: TouchEvent) => {
     if (this.isPaused || this.gameState !== 'idle') return;
     e.preventDefault();
-    const pos = this.screenToGrid(e.touches[0].clientX, e.touches[0].clientY);
-    if (pos) {
-      this.handleGemSelect(pos);
-    }
+    this.startDrag(e.touches[0].clientX, e.touches[0].clientY);
   };
 
   private handleTouchMove = (e: TouchEvent) => {
-    if (this.isPaused || this.gameState !== 'idle') return;
+    if (this.isPaused) return;
     e.preventDefault();
-
-    if (this.selectedGem) {
-      const pos = this.screenToGrid(e.touches[0].clientX, e.touches[0].clientY);
-      if (pos && areAdjacent(this.selectedGem, pos)) {
-        this.trySwap(this.selectedGem, pos);
-      }
-    }
+    this.updateDrag(e.touches[0].clientX, e.touches[0].clientY);
   };
 
   private handleTouchEnd = (e: TouchEvent) => {
     if (this.isPaused) return;
     e.preventDefault();
+    this.endDrag();
   };
 
   private handleMouseDown = (e: MouseEvent) => {
     if (this.isPaused || this.gameState !== 'idle') return;
-    const pos = this.screenToGrid(e.clientX, e.clientY);
-    if (pos) {
-      this.handleGemSelect(pos);
-    }
+    this.startDrag(e.clientX, e.clientY);
   };
 
   private handleMouseMove = (e: MouseEvent) => {
-    if (this.isPaused || this.gameState !== 'idle') return;
-
-    if (this.selectedGem && e.buttons === 1) {
-      const pos = this.screenToGrid(e.clientX, e.clientY);
-      if (pos && areAdjacent(this.selectedGem, pos)) {
-        this.trySwap(this.selectedGem, pos);
-      }
-    }
+    if (this.isPaused) return;
+    this.updateDrag(e.clientX, e.clientY);
   };
 
   private handleMouseUp = () => {
-    // Selection persists for click-based swapping
+    if (this.isPaused) return;
+    this.endDrag();
   };
 
-  private handleGemSelect(pos: Position) {
-    this.lastInteractionTime = performance.now();
-    this.hintMove = null;
+  private startDrag(screenX: number, screenY: number) {
+    const pos = this.screenToGrid(screenX, screenY);
+    if (!pos) return;
 
-    const gem = this.grid[pos.row][pos.col];
-    if (!gem) return;
+    const rect = this.container.getBoundingClientRect();
+    this.isDragging = true;
+    this.dragStartPos = { x: screenX - rect.left, y: screenY - rect.top };
+    this.dragStartCell = pos;
+    this.slideState = null;
 
-    if (this.selectedGem) {
-      if (this.selectedGem.row === pos.row && this.selectedGem.col === pos.col) {
-        // Deselect
-        this.selectedGem = null;
-        this.api.haptics.tap();
-      } else if (areAdjacent(this.selectedGem, pos)) {
-        // Try to swap
-        this.trySwap(this.selectedGem, pos);
-      } else {
-        // Select new gem
-        this.selectedGem = pos;
-        this.api.haptics.tap();
+    this.api.haptics.tap();
+  }
+
+  private updateDrag(screenX: number, screenY: number) {
+    if (!this.isDragging || !this.dragStartPos || !this.dragStartCell) return;
+    if (this.gameState !== 'idle' && this.gameState !== 'sliding') return;
+
+    const rect = this.container.getBoundingClientRect();
+    const currentX = screenX - rect.left;
+    const currentY = screenY - rect.top;
+    const deltaX = currentX - this.dragStartPos.x;
+    const deltaY = currentY - this.dragStartPos.y;
+
+    // Determine slide direction if not yet determined
+    if (!this.slideState) {
+      const threshold = 10; // Minimum pixels to determine direction
+      if (Math.abs(deltaX) > threshold || Math.abs(deltaY) > threshold) {
+        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+          // Horizontal slide - affects the row
+          this.slideState = {
+            type: 'row',
+            index: this.dragStartCell.row,
+            offset: 0,
+            startX: this.dragStartPos.x,
+            startY: this.dragStartPos.y,
+          };
+        } else {
+          // Vertical slide - affects the column
+          this.slideState = {
+            type: 'col',
+            index: this.dragStartCell.col,
+            offset: 0,
+            startX: this.dragStartPos.x,
+            startY: this.dragStartPos.y,
+          };
+        }
+        this.gameState = 'sliding';
         this.api.sounds.select();
       }
-    } else {
-      // Select gem
-      this.selectedGem = pos;
-      this.api.haptics.tap();
-      this.api.sounds.select();
     }
 
-    this.render();
+    // Update offset
+    if (this.slideState) {
+      if (this.slideState.type === 'row') {
+        this.slideState.offset = currentX - this.slideState.startX;
+      } else {
+        this.slideState.offset = currentY - this.slideState.startY;
+      }
+      this.render();
+    }
   }
 
-  private trySwap(from: Position, to: Position) {
-    this.lastInteractionTime = performance.now();
-    this.hintMove = null;
+  private endDrag() {
+    if (!this.isDragging) return;
+    this.isDragging = false;
 
-    const gem1 = this.grid[from.row][from.col];
-    const gem2 = this.grid[to.row][to.col];
+    if (this.slideState && this.gameState === 'sliding') {
+      // Calculate how many cells to shift
+      const cellsToShift = Math.round(this.slideState.offset / this.cellSize);
 
-    if (!gem1 || !gem2) return;
+      if (cellsToShift !== 0) {
+        // Apply the shift to the grid
+        this.applySlide(this.slideState.type, this.slideState.index, cellsToShift);
 
-    // Check if swap is valid
-    const isValid = wouldSwapMatch(this.grid, from, to);
+        // Animate snap to final position
+        this.snapFrom = this.slideState.offset;
+        this.snapTo = cellsToShift * this.cellSize;
+        this.snapProgress = 0;
+        this.snapStartTime = performance.now();
+        this.gameState = 'snapping';
 
-    this.swapFrom = from;
-    this.swapTo = to;
-    this.swapProgress = 0;
-    this.swapStartTime = performance.now();
-    this.gameState = isValid ? 'swapping' : 'reversing';
-    this.selectedGem = null;
-
-    if (isValid) {
-      this.api.haptics.tap();
-      this.api.sounds.place();
-    } else {
-      this.api.sounds.invalid();
-    }
-
-    this.startAnimationLoop();
-  }
-
-  private processSwapComplete() {
-    if (!this.swapFrom || !this.swapTo) return;
-
-    // Actually swap the gems in the grid
-    swapGems(this.grid, this.swapFrom, this.swapTo);
-
-    // Check for special gem activations
-    const gem1 = this.grid[this.swapFrom.row][this.swapFrom.col];
-    const gem2 = this.grid[this.swapTo.row][this.swapTo.col];
-
-    // Handle rainbow gem swap
-    if (gem1?.type === 'rainbow' && gem2) {
-      this.activateRainbowGem(this.swapFrom, gem2.colorIndex);
-      return;
-    }
-    if (gem2?.type === 'rainbow' && gem1) {
-      this.activateRainbowGem(this.swapTo, gem1.colorIndex);
-      return;
-    }
-
-    // Check for special gems being activated
-    const specialsToActivate: { pos: Position; gem: Gem }[] = [];
-    if (gem1 && gem1.type !== 'normal') {
-      specialsToActivate.push({ pos: this.swapFrom, gem: gem1 });
-    }
-    if (gem2 && gem2.type !== 'normal') {
-      specialsToActivate.push({ pos: this.swapTo, gem: gem2 });
-    }
-
-    if (specialsToActivate.length > 0) {
-      this.activateSpecialGems(specialsToActivate);
-      return;
-    }
-
-    // Normal match processing
-    this.cascadeLevel = 1;
-    this.processMatches();
-  }
-
-  private activateRainbowGem(pos: Position, targetColorIndex: number) {
-    if (targetColorIndex < 0) return;
-
-    const positions = getColorMatchPositions(this.grid, targetColorIndex);
-    positions.push(pos); // Include the rainbow gem itself
-
-    // Create visual effect
-    const effectPositions = positions.map((p) => ({
-      x: this.gridOffsetX + p.col * this.cellSize,
-      y: this.gridOffsetY + p.row * this.cellSize,
-    }));
-
-    this.specialEffects.push({
-      type: 'rainbow',
-      x: this.gridOffsetX + pos.col * this.cellSize,
-      y: this.gridOffsetY + pos.row * this.cellSize,
-      progress: 0,
-      positions: effectPositions,
-    });
-
-    this.api.sounds.burst();
-    this.api.haptics.success();
-
-    // Clear all matching gems
-    for (const p of positions) {
-      this.clearingPositions.add(`${p.row},${p.col}`);
-    }
-
-    // Calculate score
-    const points = 150 * positions.length * this.cascadeLevel;
-    this.score += points;
-    this.api.setScore(this.score);
-
-    // Spawn particles
-    this.spawnClearParticles(positions);
-
-    // Show floating text
-    const centerX = this.gridOffsetX + pos.col * this.cellSize + this.cellSize / 2;
-    const centerY = this.gridOffsetY + pos.row * this.cellSize + this.cellSize / 2;
-    this.floatingTexts.push(createFloatingText(centerX, centerY - 20, `+${points}`, '#fbbf24', 24));
-
-    this.clearProgress = 0;
-    this.clearStartTime = performance.now();
-    this.gameState = 'clearing';
-  }
-
-  private activateSpecialGems(specials: { pos: Position; gem: Gem }[]) {
-    const allPositions: Position[] = [];
-
-    for (const { pos, gem } of specials) {
-      const positions = getSpecialGemClearPositions(this.grid, pos, gem);
-      allPositions.push(...positions);
-
-      // Create visual effect
-      const effectX = this.gridOffsetX + pos.col * this.cellSize;
-      const effectY = this.gridOffsetY + pos.row * this.cellSize;
-
-      if (gem.type === 'line_h' || gem.type === 'line_v') {
-        this.specialEffects.push({
-          type: gem.type,
-          x: effectX,
-          y: effectY,
-          progress: 0,
-        });
-      } else if (gem.type === 'bomb') {
-        this.specialEffects.push({
-          type: 'bomb',
-          x: effectX,
-          y: effectY,
-          progress: 0,
-        });
-        this.screenShake = 1;
-        this.screenShakeDecay = 0.95;
+        this.api.sounds.place();
+        this.api.haptics.tap();
+      } else {
+        // Snap back to original position
+        this.snapFrom = this.slideState.offset;
+        this.snapTo = 0;
+        this.snapProgress = 0;
+        this.snapStartTime = performance.now();
+        this.gameState = 'snapping';
       }
 
-      this.api.sounds.burst();
+      this.startAnimationLoop();
+    } else {
+      this.slideState = null;
+      this.gameState = 'idle';
     }
 
-    this.api.haptics.success();
+    this.dragStartPos = null;
+    this.dragStartCell = null;
+  }
 
-    // Mark all positions for clearing
-    for (const p of allPositions) {
-      this.clearingPositions.add(`${p.row},${p.col}`);
+  private applySlide(type: 'row' | 'col', index: number, shift: number) {
+    if (type === 'row') {
+      // Shift row horizontally (with wrapping)
+      const row = this.grid[index];
+      const newRow: (Gem | null)[] = new Array(GRID_COLS);
+
+      for (let col = 0; col < GRID_COLS; col++) {
+        let sourceCol = col - shift;
+        // Wrap around
+        while (sourceCol < 0) sourceCol += GRID_COLS;
+        while (sourceCol >= GRID_COLS) sourceCol -= GRID_COLS;
+        newRow[col] = row[sourceCol];
+      }
+
+      this.grid[index] = newRow;
+    } else {
+      // Shift column vertically (with wrapping)
+      const column: (Gem | null)[] = [];
+      for (let row = 0; row < GRID_ROWS; row++) {
+        column.push(this.grid[row][index]);
+      }
+
+      for (let row = 0; row < GRID_ROWS; row++) {
+        let sourceRow = row - shift;
+        // Wrap around
+        while (sourceRow < 0) sourceRow += GRID_ROWS;
+        while (sourceRow >= GRID_ROWS) sourceRow -= GRID_ROWS;
+        this.grid[row][index] = column[sourceRow];
+      }
     }
+  }
 
-    // Calculate score
-    const points = 150 * allPositions.length * this.cascadeLevel;
-    this.score += points;
-    this.api.setScore(this.score);
-
-    // Spawn particles
-    this.spawnClearParticles(allPositions);
-
-    // Show floating text
-    if (specials.length > 0) {
-      const centerX = this.gridOffsetX + specials[0].pos.col * this.cellSize + this.cellSize / 2;
-      const centerY = this.gridOffsetY + specials[0].pos.row * this.cellSize + this.cellSize / 2;
-      this.floatingTexts.push(createFloatingText(centerX, centerY - 20, `+${points}`, '#fbbf24', 24));
-    }
-
-    this.clearProgress = 0;
-    this.clearStartTime = performance.now();
-    this.gameState = 'clearing';
+  private processSnapComplete() {
+    this.slideState = null;
+    this.cascadeLevel = 1;
+    this.processMatches();
   }
 
   private processMatches() {
@@ -483,15 +407,14 @@ export class GemCrushGame implements GameInstance {
 
     this.api.haptics.success();
 
-    // Store positions marked for clearing (but don't clear yet - will create specials first)
+    // Store positions marked for clearing
     this.clearingPositions = positionsToMark;
 
     // Create special gems
     for (const special of result.specialGems) {
       const { position, type, colorIndex } = special;
       this.grid[position.row][position.col] = createSpecialGem(colorIndex, type);
-      this.grid[position.row][position.col]!.scale = 0; // Start small for pop animation
-      // Remove from clearing since we're keeping this position
+      this.grid[position.row][position.col]!.scale = 0;
       this.clearingPositions.delete(`${position.row},${position.col}`);
     }
 
@@ -549,6 +472,24 @@ export class GemCrushGame implements GameInstance {
   }
 
   private processClearComplete() {
+    // Check for special gems in cleared positions and activate them
+    const specialsToActivate: { pos: Position; gem: Gem }[] = [];
+
+    for (const key of this.clearingPositions) {
+      const [row, col] = key.split(',').map(Number);
+      const gem = this.grid[row][col];
+      if (gem && gem.type !== 'normal') {
+        specialsToActivate.push({ pos: { row, col }, gem });
+      }
+    }
+
+    // Activate special gems
+    if (specialsToActivate.length > 0) {
+      for (const { pos, gem } of specialsToActivate) {
+        this.activateSpecialGem(pos, gem);
+      }
+    }
+
     // Remove cleared gems
     for (const key of this.clearingPositions) {
       const [row, col] = key.split(',').map(Number);
@@ -598,6 +539,89 @@ export class GemCrushGame implements GameInstance {
     }
   }
 
+  private activateSpecialGem(pos: Position, gem: Gem) {
+    const positions = getSpecialGemClearPositions(this.grid, pos, gem);
+
+    // Create visual effect
+    const effectX = this.gridOffsetX + pos.col * this.cellSize;
+    const effectY = this.gridOffsetY + pos.row * this.cellSize;
+
+    if (gem.type === 'line_h' || gem.type === 'line_v') {
+      this.specialEffects.push({
+        type: gem.type,
+        x: effectX,
+        y: effectY,
+        progress: 0,
+      });
+    } else if (gem.type === 'bomb') {
+      this.specialEffects.push({
+        type: 'bomb',
+        x: effectX,
+        y: effectY,
+        progress: 0,
+      });
+      this.screenShake = 1;
+      this.screenShakeDecay = 0.95;
+    } else if (gem.type === 'rainbow') {
+      // Rainbow clears a random color
+      const colors = new Set<number>();
+      for (let r = 0; r < GRID_ROWS; r++) {
+        for (let c = 0; c < GRID_COLS; c++) {
+          const g = this.grid[r][c];
+          if (g && g.colorIndex >= 0) colors.add(g.colorIndex);
+        }
+      }
+      if (colors.size > 0) {
+        const colorArray = Array.from(colors);
+        const targetColor = colorArray[Math.floor(Math.random() * colorArray.length)];
+        const rainbowPositions = getColorMatchPositions(this.grid, targetColor);
+
+        const effectPositions = rainbowPositions.map((p) => ({
+          x: this.gridOffsetX + p.col * this.cellSize,
+          y: this.gridOffsetY + p.row * this.cellSize,
+        }));
+
+        this.specialEffects.push({
+          type: 'rainbow',
+          x: effectX,
+          y: effectY,
+          progress: 0,
+          positions: effectPositions,
+        });
+
+        for (const p of rainbowPositions) {
+          this.clearingPositions.add(`${p.row},${p.col}`);
+        }
+      }
+    }
+
+    this.api.sounds.burst();
+
+    // Mark positions for clearing
+    for (const p of positions) {
+      this.clearingPositions.add(`${p.row},${p.col}`);
+    }
+
+    // Spawn particles
+    for (const p of positions) {
+      const g = this.grid[p.row][p.col];
+      if (g) {
+        const x = this.gridOffsetX + p.col * this.cellSize + this.cellSize / 2;
+        const y = this.gridOffsetY + p.row * this.cellSize + this.cellSize / 2;
+        this.particles.push(...generateParticlesAt(x, y, g.color, 4));
+      }
+    }
+
+    // Add score
+    const points = 150 * positions.length * this.cascadeLevel;
+    this.score += points;
+    this.api.setScore(this.score);
+
+    this.floatingTexts.push(
+      createFloatingText(effectX + this.cellSize / 2, effectY, `+${points}`, '#fbbf24', 20)
+    );
+  }
+
   private processFallComplete() {
     // Reset all gem offsets
     for (const { gem } of this.fallingGems) {
@@ -630,22 +654,6 @@ export class GemCrushGame implements GameInstance {
       }
     }
     this.particles.push(...generateDefeatParticles(cells));
-  }
-
-  private updateHint() {
-    if (this.gameState !== 'idle') return;
-
-    const timeSinceInteraction = performance.now() - this.lastInteractionTime;
-    if (timeSinceInteraction >= this.HINT_DELAY && !this.hintMove) {
-      const move = findValidMove(this.grid);
-      if (move) {
-        this.hintMove = {
-          from: move.from,
-          to: move.to,
-          highlightTime: performance.now(),
-        };
-      }
-    }
   }
 
   private startAnimationLoop = () => {
@@ -701,26 +709,18 @@ export class GemCrushGame implements GameInstance {
 
     // Update based on game state
     switch (this.gameState) {
-      case 'swapping':
-      case 'reversing': {
-        const elapsed = now - this.swapStartTime;
-        this.swapProgress = Math.min(1, elapsed / this.SWAP_DURATION);
+      case 'snapping': {
+        const elapsed = now - this.snapStartTime;
+        this.snapProgress = Math.min(1, elapsed / this.SNAP_DURATION);
 
-        if (this.swapProgress >= 1) {
-          if (this.gameState === 'swapping') {
-            this.processSwapComplete();
-          } else {
-            // Reversal complete - shake gems to indicate invalid
-            if (this.swapFrom && this.swapTo) {
-              const gem1 = this.grid[this.swapFrom.row][this.swapFrom.col];
-              const gem2 = this.grid[this.swapTo.row][this.swapTo.col];
-              if (gem1) gem1.shake = 1;
-              if (gem2) gem2.shake = 1;
-            }
-            this.gameState = 'idle';
-            this.swapFrom = null;
-            this.swapTo = null;
-          }
+        if (this.slideState) {
+          // Ease out
+          const eased = 1 - Math.pow(1 - this.snapProgress, 3);
+          this.slideState.offset = this.snapFrom + (this.snapTo - this.snapFrom) * eased;
+        }
+
+        if (this.snapProgress >= 1) {
+          this.processSnapComplete();
         }
         break;
       }
@@ -769,11 +769,6 @@ export class GemCrushGame implements GameInstance {
         }
         break;
       }
-
-      case 'idle': {
-        this.updateHint();
-        break;
-      }
     }
 
     // Filter expired effects
@@ -813,60 +808,57 @@ export class GemCrushGame implements GameInstance {
     // Draw grid background
     drawGridBackground(this.ctx, this.gridOffsetX, this.gridOffsetY, this.cellSize);
 
-    // Draw gems
-    const now = performance.now();
-    const hintPulse = this.hintMove ? ((now - this.hintMove.highlightTime) / 1000) % 1 : 0;
-
+    // Draw gems with slide offset
     for (let row = 0; row < GRID_ROWS; row++) {
       for (let col = 0; col < GRID_COLS; col++) {
-        // Skip gems being animated in swap
-        if (
-          (this.gameState === 'swapping' || this.gameState === 'reversing') &&
-          this.swapFrom &&
-          this.swapTo
-        ) {
-          if (
-            (row === this.swapFrom.row && col === this.swapFrom.col) ||
-            (row === this.swapTo.row && col === this.swapTo.col)
-          ) {
-            continue;
-          }
-        }
-
         const gem = this.grid[row][col];
         if (!gem) continue;
 
-        const x = this.gridOffsetX + col * this.cellSize;
-        const y = this.gridOffsetY + row * this.cellSize;
+        let x = this.gridOffsetX + col * this.cellSize;
+        let y = this.gridOffsetY + row * this.cellSize;
 
-        const isSelected =
-          this.selectedGem?.row === row && this.selectedGem?.col === col;
+        // Apply slide offset
+        if (this.slideState) {
+          if (this.slideState.type === 'row' && this.slideState.index === row) {
+            x += this.slideState.offset;
+            // Wrap rendering
+            const gridWidth = this.cellSize * GRID_COLS;
+            if (x < this.gridOffsetX - this.cellSize) {
+              x += gridWidth;
+            } else if (x > this.gridOffsetX + gridWidth - this.cellSize) {
+              // Draw wrapped version on the other side
+              this.ctx.save();
+              this.ctx.beginPath();
+              this.ctx.rect(this.gridOffsetX, this.gridOffsetY, gridWidth, this.cellSize * GRID_ROWS);
+              this.ctx.clip();
+              drawGem(this.ctx, x - gridWidth, y, this.cellSize, gem);
+              this.ctx.restore();
+            }
+          } else if (this.slideState.type === 'col' && this.slideState.index === col) {
+            y += this.slideState.offset;
+            // Wrap rendering
+            const gridHeight = this.cellSize * GRID_ROWS;
+            if (y < this.gridOffsetY - this.cellSize) {
+              y += gridHeight;
+            } else if (y > this.gridOffsetY + gridHeight - this.cellSize) {
+              // Draw wrapped version on the other side
+              this.ctx.save();
+              this.ctx.beginPath();
+              this.ctx.rect(this.gridOffsetX, this.gridOffsetY, this.cellSize * GRID_COLS, gridHeight);
+              this.ctx.clip();
+              drawGem(this.ctx, x, y - gridHeight, this.cellSize, gem);
+              this.ctx.restore();
+            }
+          }
+        }
 
-        const isHinted =
-          this.hintMove &&
-          ((this.hintMove.from.row === row && this.hintMove.from.col === col) ||
-            (this.hintMove.to.row === row && this.hintMove.to.col === col));
-
-        drawGem(this.ctx, x, y, this.cellSize, gem, isSelected, !!isHinted, hintPulse);
-      }
-    }
-
-    // Draw swap animation
-    if ((this.gameState === 'swapping' || this.gameState === 'reversing') && this.swapFrom && this.swapTo) {
-      const gem1 = this.grid[this.swapFrom.row][this.swapFrom.col];
-      const gem2 = this.grid[this.swapTo.row][this.swapTo.col];
-
-      if (gem1 && gem2) {
-        const x1 = this.gridOffsetX + this.swapFrom.col * this.cellSize;
-        const y1 = this.gridOffsetY + this.swapFrom.row * this.cellSize;
-        const x2 = this.gridOffsetX + this.swapTo.col * this.cellSize;
-        const y2 = this.gridOffsetY + this.swapTo.row * this.cellSize;
-
-        const progress = this.gameState === 'reversing'
-          ? 1 - this.swapProgress // Reverse direction
-          : this.swapProgress;
-
-        drawSwapAnimation(this.ctx, gem1, gem2, x1, y1, x2, y2, this.cellSize, progress);
+        // Clip to grid area for sliding
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(this.gridOffsetX, this.gridOffsetY, this.cellSize * GRID_COLS, this.cellSize * GRID_ROWS);
+        this.ctx.clip();
+        drawGem(this.ctx, x, y, this.cellSize, gem);
+        this.ctx.restore();
       }
     }
 
@@ -906,6 +898,44 @@ export class GemCrushGame implements GameInstance {
 
     // Draw defeat overlay
     drawDefeatOverlay(this.ctx, rect.width, rect.height, this.defeatAnimation);
+
+    // Draw slide indicator during idle
+    if (this.gameState === 'idle' && !this.isDragging) {
+      this.drawSlideHint();
+    }
+  }
+
+  private drawSlideHint() {
+    // Draw subtle arrows on edges to indicate sliding is possible
+    const ctx = this.ctx;
+    const alpha = 0.3 + Math.sin(performance.now() / 500) * 0.1;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Left/right arrows for rows
+    const midRow = Math.floor(GRID_ROWS / 2);
+    const leftX = this.gridOffsetX - 15;
+    const rightX = this.gridOffsetX + this.cellSize * GRID_COLS + 15;
+    const rowY = this.gridOffsetY + midRow * this.cellSize + this.cellSize / 2;
+
+    ctx.fillText('◀', leftX, rowY);
+    ctx.fillText('▶', rightX, rowY);
+
+    // Up/down arrows for columns
+    const midCol = Math.floor(GRID_COLS / 2);
+    const colX = this.gridOffsetX + midCol * this.cellSize + this.cellSize / 2;
+    const topY = this.gridOffsetY - 15;
+    const bottomY = this.gridOffsetY + this.cellSize * GRID_ROWS + 15;
+
+    ctx.fillText('▲', colX, topY);
+    ctx.fillText('▼', colX, bottomY);
+
+    ctx.restore();
   }
 
   start() {
@@ -913,9 +943,8 @@ export class GemCrushGame implements GameInstance {
     this.score = 0;
     this.cascadeLevel = 1;
     this.gameState = 'idle';
-    this.selectedGem = null;
-    this.hintMove = null;
-    this.lastInteractionTime = performance.now();
+    this.slideState = null;
+    this.isDragging = false;
     this.particles = [];
     this.floatingTexts = [];
     this.specialEffects = [];
@@ -925,8 +954,6 @@ export class GemCrushGame implements GameInstance {
     this.api.setScore(0);
     this.api.sounds.gameStart();
     this.render();
-
-    // Start idle animation loop for hint system
     this.startAnimationLoop();
   }
 
@@ -940,8 +967,6 @@ export class GemCrushGame implements GameInstance {
 
   resume() {
     this.isPaused = false;
-    this.lastInteractionTime = performance.now(); // Reset hint timer
-    this.hintMove = null;
     this.startAnimationLoop();
   }
 
