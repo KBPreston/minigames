@@ -2,6 +2,20 @@
 
 import { Gem, GRID_COLS, GRID_ROWS, GEM_COLORS } from './types';
 
+// Safe arc helper that prevents negative radius errors
+function safeArc(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number
+): void {
+  if (radius > 0) {
+    ctx.arc(x, y, radius, startAngle, endAngle);
+  }
+}
+
 // Draw a single gem with all its visual effects
 export function drawGem(
   ctx: CanvasRenderingContext2D,
@@ -21,7 +35,7 @@ export function drawGem(
   const radius = (gemSize / 2) * scale;
 
   // Don't draw if radius is too small
-  if (radius < 1) return;
+  if (radius < 2) return;
 
   ctx.save();
 
@@ -73,6 +87,8 @@ function drawNormalGem(
   radius: number,
   color: string
 ): void {
+  if (radius < 2) return;
+
   // Main gem body with gradient
   const gradient = ctx.createRadialGradient(
     x - radius * 0.3,
@@ -87,22 +103,28 @@ function drawNormalGem(
   gradient.addColorStop(1, darkenColor(color, 30));
 
   ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  safeArc(ctx, x, y, radius, 0, Math.PI * 2);
   ctx.fillStyle = gradient;
   ctx.fill();
 
   // Inner highlight
-  ctx.beginPath();
-  ctx.arc(x - radius * 0.25, y - radius * 0.25, radius * 0.35, 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(255, 255, 255, 0.4)`;
-  ctx.fill();
+  const highlightRadius = radius * 0.35;
+  if (highlightRadius > 0) {
+    ctx.beginPath();
+    safeArc(ctx, x - radius * 0.25, y - radius * 0.25, highlightRadius, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 255, 255, 0.4)`;
+    ctx.fill();
+  }
 
   // Subtle rim
-  ctx.beginPath();
-  ctx.arc(x, y, radius - 1, 0, Math.PI * 2);
-  ctx.strokeStyle = `rgba(255, 255, 255, 0.2)`;
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  const rimRadius = Math.max(0, radius - 1);
+  if (rimRadius > 0) {
+    ctx.beginPath();
+    safeArc(ctx, x, y, rimRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 255, 255, 0.2)`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 }
 
 function drawLineBlasterGem(
@@ -113,37 +135,42 @@ function drawLineBlasterGem(
   color: string,
   isHorizontal: boolean
 ): void {
+  if (radius < 2) return;
+
   // Base gem
   drawNormalGem(ctx, x, y, radius, color);
 
   // Stripe pattern
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(x, y, radius - 2, 0, Math.PI * 2);
-  ctx.clip();
+  const clipRadius = Math.max(0, radius - 2);
+  if (clipRadius > 0) {
+    ctx.save();
+    ctx.beginPath();
+    safeArc(ctx, x, y, clipRadius, 0, Math.PI * 2);
+    ctx.clip();
 
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-  ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 3;
 
-  if (isHorizontal) {
-    // Horizontal stripes
-    for (let i = -2; i <= 2; i++) {
-      ctx.beginPath();
-      ctx.moveTo(x - radius, y + i * 6);
-      ctx.lineTo(x + radius, y + i * 6);
-      ctx.stroke();
+    if (isHorizontal) {
+      // Horizontal stripes
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x - radius, y + i * 6);
+        ctx.lineTo(x + radius, y + i * 6);
+        ctx.stroke();
+      }
+    } else {
+      // Vertical stripes
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x + i * 6, y - radius);
+        ctx.lineTo(x + i * 6, y + radius);
+        ctx.stroke();
+      }
     }
-  } else {
-    // Vertical stripes
-    for (let i = -2; i <= 2; i++) {
-      ctx.beginPath();
-      ctx.moveTo(x + i * 6, y - radius);
-      ctx.lineTo(x + i * 6, y + radius);
-      ctx.stroke();
-    }
+
+    ctx.restore();
   }
-
-  ctx.restore();
 
   // Arrow indicators
   ctx.fillStyle = '#ffffff';
@@ -169,6 +196,8 @@ function drawArrow(
   size: number,
   direction: 'left' | 'right' | 'up' | 'down'
 ): void {
+  if (size < 1) return;
+
   ctx.save();
   ctx.translate(x, y);
 
@@ -204,6 +233,8 @@ function drawBombGem(
   radius: number,
   color: string
 ): void {
+  if (radius < 2) return;
+
   // Base gem with darker center
   const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
   gradient.addColorStop(0, darkenColor(color, 20));
@@ -211,7 +242,7 @@ function drawBombGem(
   gradient.addColorStop(1, darkenColor(color, 40));
 
   ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  safeArc(ctx, x, y, radius, 0, Math.PI * 2);
   ctx.fillStyle = gradient;
   ctx.fill();
 
@@ -233,17 +264,23 @@ function drawBombGem(
   ctx.restore();
 
   // Center dot
-  ctx.beginPath();
-  ctx.arc(x, y, radius * 0.2, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
+  const centerRadius = radius * 0.2;
+  if (centerRadius > 0) {
+    ctx.beginPath();
+    safeArc(ctx, x, y, centerRadius, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+  }
 
   // Pulsing ring
-  ctx.beginPath();
-  ctx.arc(x, y, radius * 0.85, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
+  const ringRadius = radius * 0.85;
+  if (ringRadius > 0) {
+    ctx.beginPath();
+    safeArc(ctx, x, y, ringRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
 }
 
 function drawRainbowGem(
@@ -252,6 +289,8 @@ function drawRainbowGem(
   y: number,
   radius: number
 ): void {
+  if (radius < 2) return;
+
   // Rainbow gradient background
   const gradient = ctx.createConicGradient(0, x, y);
   GEM_COLORS.forEach((color, i) => {
@@ -260,7 +299,7 @@ function drawRainbowGem(
   gradient.addColorStop(1, GEM_COLORS[0]);
 
   ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  safeArc(ctx, x, y, radius, 0, Math.PI * 2);
   ctx.fillStyle = gradient;
   ctx.fill();
 
@@ -271,7 +310,7 @@ function drawRainbowGem(
   innerGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
 
   ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  safeArc(ctx, x, y, radius, 0, Math.PI * 2);
   ctx.fillStyle = innerGradient;
   ctx.fill();
 
@@ -296,11 +335,14 @@ function drawRainbowGem(
   ctx.restore();
 
   // Outer sparkle ring
-  ctx.beginPath();
-  ctx.arc(x, y, radius - 2, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  const outerRingRadius = Math.max(0, radius - 2);
+  if (outerRingRadius > 0) {
+    ctx.beginPath();
+    safeArc(ctx, x, y, outerRingRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 }
 
 // Draw grid background
@@ -398,7 +440,7 @@ export function drawLineBlasterEffect(
 
   ctx.save();
 
-  const alpha = 1 - progress;
+  const alpha = Math.max(0, 1 - progress);
   const width = isHorizontal ? gridWidth : cellSize * 0.8;
   const height = isHorizontal ? cellSize * 0.8 : gridHeight;
 
@@ -425,34 +467,39 @@ export function drawBombEffect(
 ): void {
   ctx.save();
 
+  const clampedProgress = Math.min(1, Math.max(0, progress));
   const maxRadius = cellSize * 2;
-  const currentRadius = maxRadius * progress;
-  const alpha = 1 - progress;
+  const currentRadius = maxRadius * clampedProgress;
+  const alpha = Math.max(0, 1 - clampedProgress);
 
   // Shockwave ring
-  ctx.beginPath();
-  ctx.arc(x + cellSize / 2, y + cellSize / 2, currentRadius, 0, Math.PI * 2);
-  ctx.strokeStyle = `rgba(255, 200, 100, ${alpha})`;
-  ctx.lineWidth = 8 * (1 - progress);
-  ctx.stroke();
+  if (currentRadius > 0) {
+    ctx.beginPath();
+    safeArc(ctx, x + cellSize / 2, y + cellSize / 2, currentRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 200, 100, ${alpha})`;
+    ctx.lineWidth = Math.max(0.5, 8 * (1 - clampedProgress));
+    ctx.stroke();
+  }
 
   // Inner flash
-  const flashRadius = maxRadius * 0.5 * (1 - progress);
-  const gradient = ctx.createRadialGradient(
-    x + cellSize / 2,
-    y + cellSize / 2,
-    0,
-    x + cellSize / 2,
-    y + cellSize / 2,
-    flashRadius
-  );
-  gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha * 0.8})`);
-  gradient.addColorStop(1, `rgba(255, 200, 100, 0)`);
+  const flashRadius = Math.max(0, maxRadius * 0.5 * (1 - clampedProgress));
+  if (flashRadius > 0) {
+    const gradient = ctx.createRadialGradient(
+      x + cellSize / 2,
+      y + cellSize / 2,
+      0,
+      x + cellSize / 2,
+      y + cellSize / 2,
+      flashRadius
+    );
+    gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha * 0.8})`);
+    gradient.addColorStop(1, `rgba(255, 200, 100, 0)`);
 
-  ctx.beginPath();
-  ctx.arc(x + cellSize / 2, y + cellSize / 2, flashRadius, 0, Math.PI * 2);
-  ctx.fillStyle = gradient;
-  ctx.fill();
+    ctx.beginPath();
+    safeArc(ctx, x + cellSize / 2, y + cellSize / 2, flashRadius, 0, Math.PI * 2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+  }
 
   ctx.restore();
 }
@@ -466,16 +513,19 @@ export function drawRainbowEffect(
 ): void {
   ctx.save();
 
-  const alpha = 1 - progress;
-  const scale = 0.5 + progress * 0.5;
+  const clampedProgress = Math.min(1, Math.max(0, progress));
+  const alpha = Math.max(0, 1 - clampedProgress);
+  const scale = 0.5 + clampedProgress * 0.5;
 
   for (const pos of positions) {
-    const radius = (cellSize / 2) * scale;
+    const radius = Math.max(0, (cellSize / 2) * scale);
 
-    ctx.beginPath();
-    ctx.arc(pos.x + cellSize / 2, pos.y + cellSize / 2, radius, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.7})`;
-    ctx.fill();
+    if (radius > 0) {
+      ctx.beginPath();
+      safeArc(ctx, pos.x + cellSize / 2, pos.y + cellSize / 2, radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.7})`;
+      ctx.fill();
+    }
   }
 
   ctx.restore();
