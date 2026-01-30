@@ -134,6 +134,18 @@ export function GameHost({ gameId, onScoreChange, onGameOver, isPaused }: GameHo
         warning: () => {
           if (settingsRef.current.sound) SoundEngine.warning();
         },
+        coinClink: (intensity?: number) => {
+          if (settingsRef.current.sound) SoundEngine.coinClink(intensity);
+        },
+        coinCollect: () => {
+          if (settingsRef.current.sound) SoundEngine.coinCollect();
+        },
+        coinCascade: (count: number) => {
+          if (settingsRef.current.sound) SoundEngine.coinCascade(count);
+        },
+        tierUp: () => {
+          if (settingsRef.current.sound) SoundEngine.tierUp();
+        },
       },
     };
 

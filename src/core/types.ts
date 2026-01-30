@@ -32,6 +32,10 @@ export interface GameAPI {
     gameOver(): void;
     newHighScore(): void;
     warning(): void;
+    coinClink(intensity?: number): void;
+    coinCollect(): void;
+    coinCascade(count: number): void;
+    tierUp(): void;
   };
 }
 

@@ -2,6 +2,12 @@ import type { GameDefinition, GameMetadata } from './types';
 
 export const GAMES: GameDefinition[] = [
   {
+    id: 'coin-pusher',
+    name: 'Coin Pusher',
+    icon: '🪙',
+    factory: () => import('../games/coin-pusher'),
+  },
+  {
     id: 'gem-crush',
     name: 'Gem Crush',
     icon: '💎',

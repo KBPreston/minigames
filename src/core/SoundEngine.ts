@@ -346,6 +346,82 @@ class SoundEngineClass {
   }
 
   // ============================================
+  // Game Sounds - Coin Pusher specific
+  // ============================================
+
+  /** Metallic coin clink - intensity 0-1 */
+  coinClink(intensity: number = 0.5) {
+    const baseFreq = 1200 + intensity * 600;
+    this.playTone({
+      frequency: baseFreq,
+      duration: 0.12,
+      type: 'sine',
+      gain: 0.06 + intensity * 0.04,
+      attack: 0.005,
+      decay: 0.05,
+    });
+    // Harmonic for metallic quality
+    this.playTone({
+      frequency: baseFreq * 2.4,
+      duration: 0.1,
+      type: 'sine',
+      gain: 0.03 + intensity * 0.02,
+      attack: 0.005,
+      decay: 0.04,
+    });
+  }
+
+  /** Coin collected - satisfying cha-ching */
+  coinCollect() {
+    this.playTones([
+      { frequency: 880, duration: 0.08, type: 'sine', gain: 0.12, attack: 0.005 },
+      { frequency: 1320, duration: 0.1, type: 'sine', gain: 0.1, attack: 0.005 },
+    ], 0.04);
+    // Subtle sparkle
+    this.playNoise({
+      duration: 0.06,
+      gain: 0.04,
+      filter: { type: 'highpass', frequency: 5000 },
+    });
+  }
+
+  /** Multiple coins collected - cascade sound */
+  coinCascade(count: number) {
+    const baseFreq = 800;
+    const tones: ToneConfig[] = [];
+    for (let i = 0; i < Math.min(count, 6); i++) {
+      tones.push({
+        frequency: baseFreq + i * 150,
+        duration: 0.1,
+        type: 'sine',
+        gain: 0.1 - i * 0.012,
+        attack: 0.005,
+        decay: 0.05,
+      });
+    }
+    this.playTones(tones, 0.035);
+  }
+
+  /** Tier upgrade celebration */
+  tierUp() {
+    // Triumphant ascending fanfare
+    this.playTones([
+      { frequency: 523, duration: 0.12, type: 'sine', gain: 0.18, attack: 0.01 },
+      { frequency: 659, duration: 0.12, type: 'sine', gain: 0.16, attack: 0.01 },
+      { frequency: 784, duration: 0.12, type: 'sine', gain: 0.14, attack: 0.01 },
+      { frequency: 1047, duration: 0.25, type: 'sine', gain: 0.15, attack: 0.01 },
+    ], 0.08);
+    // Sparkle overlay
+    setTimeout(() => {
+      this.playNoise({
+        duration: 0.15,
+        gain: 0.06,
+        filter: { type: 'highpass', frequency: 4000 },
+      });
+    }, 250);
+  }
+
+  // ============================================
   // Game Sounds - Color Flood specific
   // ============================================
 
